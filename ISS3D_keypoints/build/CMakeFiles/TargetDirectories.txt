@@ -1,2 +1,0 @@
-/home/jp/pcltests/ISS3D_keypoints/build/CMakeFiles/keypoints.dir
-/home/jp/pcltests/ISS3D_keypoints/build/CMakeFiles/matching.dir
