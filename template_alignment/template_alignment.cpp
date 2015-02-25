@@ -13,6 +13,20 @@
 #include <pcl/features/fpfh.h>
 #include <pcl/registration/ia_ransac.h>
 #include <pcl/registration/icp.h>
+#include <pcl/visualization/pcl_visualizer.h>
+#include <time.h>
+#include <pcl/keypoints/uniform_sampling.h>
+#include <pcl/filters/extract_indices.h>
+#include <pcl/keypoints/iss_3d.h>
+
+typedef pcl::PointXYZ PointT;
+
+pcl::PointCloud<PointT>::Ptr computeUniformSampling(pcl::PointCloud<PointT>::Ptr p_cloudIn, double radius);
+double computeCloudResolution(const pcl::PointCloud<pcl::PointXYZ>::ConstPtr& cloud);
+pcl::PointCloud<PointT>::Ptr computeISSKeypoints(pcl::PointCloud<PointT>::Ptr cloud);
+
+double scene_sampling_radius = 0.01;
+double model_sampling_radius = 0.01;
 
 class FeatureCloud
 {
@@ -46,6 +60,9 @@ class FeatureCloud
         std::cout << "Loading file : " << pcd_file << std::endl;
       xyz_ = PointCloud::Ptr (new PointCloud);
       pcl::io::loadPCDFile (pcd_file, *xyz_);
+      xyz_ = computeUniformSampling(xyz_, model_sampling_radius);
+      //xyz_ = computeISSKeypoints(xyz_);
+      
       processInput ();
     }
 
@@ -222,6 +239,112 @@ class TemplateAlignment
     int nr_iterations_;
 };
 
+
+
+// This function by Tommaso Cavallari and Federico Tombari, taken from the tutorial
+// http://pointclouds.org/documentation/tutorials/correspondence_grouping.php
+double computeCloudResolution(const pcl::PointCloud<pcl::PointXYZ>::ConstPtr& cloud)
+{
+	double resolution = 0.0;
+	int numberOfPoints = 0;
+	int nres;
+	std::vector<int> indices(2);
+	std::vector<float> squaredDistances(2);
+	pcl::search::KdTree<pcl::PointXYZ> tree;
+	tree.setInputCloud(cloud);
+ 
+	for (size_t i = 0; i < cloud->size(); ++i)
+	{
+		if (! pcl_isfinite((*cloud)[i].x))
+			continue;
+ 
+		// Considering the second neighbor since the first is the point itself.
+		nres = tree.nearestKSearch(i, 2, indices, squaredDistances);
+		if (nres == 2)
+		{
+			resolution += sqrt(squaredDistances[1]);
+			++numberOfPoints;
+		}
+	}
+	if (numberOfPoints != 0)
+		resolution /= numberOfPoints;
+ 
+	return resolution;
+}
+
+pcl::PointCloud<PointT>::Ptr computeISSKeypoints(pcl::PointCloud<PointT>::Ptr cloud)
+{
+
+	pcl::PointCloud<pcl::PointXYZ>::Ptr keypoints(new pcl::PointCloud<pcl::PointXYZ>);
+	
+	pcl::ISSKeypoint3D<pcl::PointXYZ, pcl::PointXYZ> detector;
+	detector.setInputCloud(cloud);
+	pcl::search::KdTree<pcl::PointXYZ>::Ptr kdtree(new pcl::search::KdTree<pcl::PointXYZ>);
+	detector.setSearchMethod(kdtree);
+	double resolution = computeCloudResolution(cloud);
+	//double resolution = 0.005;
+	
+	// Set the radius of the spherical neighborhood used to compute the scatter matrix.
+	detector.setSalientRadius(6 * resolution);
+	// Set the radius for the application of the non maxima supression algorithm.
+	detector.setNonMaxRadius(4 * resolution);
+	// Set the minimum number of neighbors that has to be found while applying the non maxima suppression algorithm.
+	detector.setMinNeighbors(5);
+	// Set the upper bound on the ratio between the second and the first eigenvalue.
+	detector.setThreshold21(0.975);
+	// Set the upper bound on the ratio between the third and the second eigenvalue.
+	detector.setThreshold32(0.975);
+	// Set the number of prpcessing threads to use. 0 sets it to automatic.
+	detector.setNumberOfThreads(4);
+	
+	detector.setNormalRadius (4 * resolution);
+	detector.setBorderRadius (1 * resolution);
+ 
+	detector.compute(*keypoints);
+
+
+	return keypoints;
+
+}
+
+
+pcl::PointCloud<PointT>::Ptr computeUniformSampling(pcl::PointCloud<PointT>::Ptr p_cloudIn, double radius)
+{
+
+
+    std::cout << "US computation begin" << std::endl;
+
+    pcl::UniformSampling<PointT> uniformSampling;
+    pcl::search::KdTree<PointT>::Ptr tree(new pcl::search::KdTree<PointT>);
+    boost::shared_ptr<std::vector<int> > point_cloud_indice (new std::vector<int> ());
+    pcl::PointCloud<int> point_cloud_out;
+    uniformSampling.setInputCloud(p_cloudIn);
+    uniformSampling.setSearchMethod(tree);
+    uniformSampling.setRadiusSearch(radius);
+    uniformSampling.compute(point_cloud_out);
+
+    for(int i = 0; i < point_cloud_out.size(); i++)
+    {
+        point_cloud_indice->push_back(point_cloud_out.at(i));
+    }
+
+
+	pcl::PointCloud<pcl::PointXYZ>::Ptr sampled_cloud (new pcl::PointCloud<pcl::PointXYZ>);
+
+    pcl::ExtractIndices<PointT> extract;
+    extract.setInputCloud(p_cloudIn);
+    extract.setIndices(point_cloud_indice);
+    extract.setNegative(false);
+    extract.filter(*sampled_cloud);
+
+
+	std::cout << "Pointcloud input size = " << p_cloudIn->size() << std::endl;
+    std::cout << "Point cloud out size = " << point_cloud_out.size() << std::endl;
+    std::cout << "Keypoints Size = " << sampled_cloud->size() << std::endl;
+
+    return sampled_cloud;
+}
+
 // Align a collection of object templates to a sample point cloud
 int
 main (int argc, char **argv)
@@ -231,6 +354,10 @@ main (int argc, char **argv)
     printf ("No target PCD file given!\n");
     return (-1);
   }
+  
+  time_t timer_beginning;
+  time_t timer_end;
+  time(&timer_beginning);
 
   // Load the object templates specified in the object_templates.txt file
   std::vector<FeatureCloud> object_templates;
@@ -255,7 +382,7 @@ main (int argc, char **argv)
 
   // Preprocess the cloud by...
   // ...removing distant points
-  const float depth_limit = 1.0;
+  const float depth_limit = 2.5;
   pcl::PassThrough<pcl::PointXYZ> pass;
   pass.setInputCloud (cloud);
   pass.setFilterFieldName ("z");
@@ -270,7 +397,14 @@ main (int argc, char **argv)
   //vox_grid.filter (*cloud); // Please see this http://www.pcl-developers.org/Possible-problem-in-new-VoxelGrid-implementation-from-PCL-1-5-0-td5490361.html
   pcl::PointCloud<pcl::PointXYZ>::Ptr tempCloud (new pcl::PointCloud<pcl::PointXYZ>); 
   vox_grid.filter (*tempCloud);
-  cloud = tempCloud; 
+  *cloud = *tempCloud; 
+
+  //Uniform Sampling
+  cloud = computeUniformSampling(cloud, scene_sampling_radius);
+  //cloud = computeISSKeypoints(cloud);
+  
+
+
 
   // Assign to the target FeatureCloud
   FeatureCloud target_cloud;
@@ -310,20 +444,38 @@ main (int argc, char **argv)
   icp.setInputSource(object_templates[0].getPointCloud());
   icp.setInputTarget(cloud);
   icp.setMaxCorrespondenceDistance(0.1); 
-  icp.setMaximumIterations(50);
+  icp.setMaximumIterations(40);
   pcl::PointCloud<pcl::PointXYZ>::Ptr Final(new pcl::PointCloud<pcl::PointXYZ>());
   icp.align(*Final,best_alignment.final_transformation);
   Eigen::Matrix4f icp_transform = icp.getFinalTransformation();
 
   // Save the aligned template for visualization
-  pcl::PointCloud<pcl::PointXYZ> transformed_cloud;
-  pcl::PointCloud<pcl::PointXYZ> transformed_cloud_icp;
+  pcl::PointCloud<pcl::PointXYZ>::Ptr transformed_cloud (new pcl::PointCloud<pcl::PointXYZ>);
+  pcl::PointCloud<pcl::PointXYZ>::Ptr transformed_cloud_icp (new pcl::PointCloud<pcl::PointXYZ>);
   
-  pcl::transformPointCloud (*best_template.getPointCloud (), transformed_cloud, best_alignment.final_transformation);
-  pcl::transformPointCloud (*object_templates[0].getPointCloud(), transformed_cloud_icp, icp_transform);
+  pcl::transformPointCloud (*best_template.getPointCloud (), *transformed_cloud, best_alignment.final_transformation);
+  pcl::transformPointCloud (*object_templates[0].getPointCloud(), *transformed_cloud_icp, icp_transform);
   
-  pcl::io::savePCDFileBinary ("output.pcd", transformed_cloud);
-  pcl::io::savePCDFileBinary ("output2.pcd", transformed_cloud_icp);
+  //pcl::io::savePCDFileBinary ("output.pcd", *transformed_cloud);
+  //pcl::io::savePCDFileBinary ("output2.pcd", *transformed_cloud_icp);
+  
+  time(&timer_end);
+  double seconds = difftime(timer_end,timer_beginning);
+  std::cout << "It took " << seconds << " seconds to complete the alignment!" << std::endl;
+  
+  pcl::visualization::PCLVisualizer visu("Alignment");
+  
+  //pcl::visualization::PointCloudColorHandlerCustom<pcl::PointXYZ> green(transformed_cloud, 0.0, 255.0, 0.0);
+  //visu.addPointCloud (transformed_cloud, green, "sac-ia");
+  
+  pcl::visualization::PointCloudColorHandlerCustom<pcl::PointXYZ> blue(transformed_cloud_icp, 0.0, 0.0, 255.0);
+  visu.addPointCloud (transformed_cloud_icp, blue, "icp");
+  
+  pcl::visualization::PointCloudColorHandlerCustom<pcl::PointXYZ> red(tempCloud, 255.0, 0.0, 0.0);
+  visu.addPointCloud (tempCloud, red, "scene");
+  
+  
+  visu.spin ();
 
   return (0);
 }

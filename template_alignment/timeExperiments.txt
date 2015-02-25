@@ -1,0 +1,115 @@
+TIME EXPERIMENTS
+
+RUN 1 
+(no subsampling) 
+icp_iterations = 40
+icp_max_correspondance_distance = 0.1
+voxel_grid_size = 0.005
+depth_limit = 2.5
+EXECUTION TIME = 91 seconds
+Good results : Yes
+
+
+
+RUN 2
+(subsampling only on the scene pointcloud)
+scene_subsampling_radius = 0.01 (input_points = 44 510 , output_points = 12 326)
+icp_iterations = 40
+icp_max_correspondance_distance = 0.1
+voxel_grid_size = 0.005
+depth_limit = 2.5
+EXECUTION TIME = 41 seconds
+Good results : Yes (same as RUN 1)
+
+
+RUN 3
+(subsampling only on the scene pointcloud)
+scene_subsampling_radius = 0.02 (input_points = 44 510 , output_points = 3 226)
+icp_iterations = 40
+icp_max_correspondance_distance = 0.1
+voxel_grid_size = 0.005
+depth_limit = 2.5
+EXECUTION TIME = 24 seconds
+Good results : Yes (same as RUN 1)
+
+RUN 4
+(subsampling only on the scene pointcloud)
+scene_subsampling_radius = 0.03 (input_points = 44 510 , output_points = 1 431)
+icp_iterations = 40
+icp_max_correspondance_distance = 0.1
+voxel_grid_size = 0.005
+depth_limit = 2.5
+EXECUTION TIME = 20 seconds
+Good results : NO
+
+RUN 5
+scene_subsampling_radius = 0.02 (input_points = 44 510 , output_points = 3 226)
+model_subsampling_radius = 0.01 (input_points = 15 455 , output_points = 4 313)
+icp_iterations = 40
+icp_max_correspondance_distance = 0.1
+voxel_grid_size = 0.005
+depth_limit = 2.5
+EXECUTION TIME = 9 seconds
+Good results : NO
+
+
+RUN 6
+scene_subsampling_radius = 0.01 (input_points = 44 510 , output_points = 12 326)
+model_subsampling_radius = 0.01 (input_points = 15 455 , output_points = 4 313)
+icp_iterations = 40
+icp_max_correspondance_distance = 0.1
+voxel_grid_size = 0.005
+depth_limit = 2.5
+EXECUTION TIME = 14 seconds
+Good results : YES
+
+
+RUN 7
+scene_subsampling_radius = 0.01 (input_points = 44 510 , output_points = 12 326)
+model_subsampling_radius = 0.01 (input_points = 15 455 , output_points = 4 313)
+icp_iterations = 30***
+icp_max_correspondance_distance = 0.1
+voxel_grid_size = 0.005
+depth_limit = 2.5
+EXECUTION TIME = 14 seconds
+Good results : YES
+
+RUN 8
+scene_subsampling_radius = 0.01 (input_points = 44 510 , output_points = 12 326)
+model_subsampling_radius = 0.01 (input_points = 15 455 , output_points = 4 313)
+icp_iterations = 20***
+icp_max_correspondance_distance = 0.1
+voxel_grid_size = 0.005
+depth_limit = 2.5
+EXECUTION TIME = 14 seconds
+Good results : No (visually I see it is not perfectly aligned)
+
+
+RUN 9
+scene_subsampling_radius = 0.01 (input_points = 44 510 , output_points = 12 326)
+model_subsampling_radius = 0.01 (input_points = 15 455 , output_points = 4 313)
+icp_iterations = 10***
+icp_max_correspondance_distance = 0.1
+voxel_grid_size = 0.005
+depth_limit = 2.5
+EXECUTION TIME = 14 seconds
+Good results : No (visually I see it is not perfectly aligned)
+
+
+RUN 10
+scene_subsampling_radius = 0.01 (input_points = 44 510 , output_points = 12 326)
+model_subsampling_radius = 0.01 (input_points = 15 455 , output_points = 4 313)
+icp_iterations = 10
+icp_max_correspondance_distance = 0.2***
+voxel_grid_size = 0.005
+depth_limit = 2.5
+EXECUTION TIME = 14 seconds
+Good results : No (visually I see it is not perfectly aligned)
+
+
+
+OBSERVATIONS :
+- sampling radius has a huge impact on execution time and performance
+- time to check keypoint detection techniques (ISS is already done for example)--- uniform sampling works better
+
+

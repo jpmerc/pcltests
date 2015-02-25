@@ -6,4 +6,5 @@
 #./data/object_template_4.pcd
 #./data/object_template_5.pcd
 #./data/milk_carton.pcd
-container2.pcd
+#../container2.pcd
+../container_model.pcd
