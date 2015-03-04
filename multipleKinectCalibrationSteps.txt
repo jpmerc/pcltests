@@ -1,0 +1,9 @@
+- clone the github rep and copy/paste the checkerboard_detector repository in a ros workspace (or simply install it : sudo apt-get install ros-hydro-checkerboard-detector and modify launch files accordingly)
+- start one kinect : roslaunch openni_launch openni.launch 
+- start detector : roslaunch checkerboard_detector checkerboard_detector_single.launch
+
+
+
+start different kinect at the same time :
+roslaunch openni_launch openni.launch camera:=kinect2 device_id:=1@0
+roslaunch openni_launch openni.launch camera:=kinect1 device_id:=2@0
