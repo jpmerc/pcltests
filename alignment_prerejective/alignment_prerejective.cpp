@@ -117,11 +117,11 @@ main (int argc, char **argv)
     grid.filter (*scene);
 
     // Estimate normals for scene
-    pcl::console::print_highlight ("Estimating scene normals...\n");
-    pcl::NormalEstimationOMP<PointNT,PointNT> nest;
-    nest.setRadiusSearch (0.01);
-    nest.setInputCloud (scene);
-    nest.compute (*scene);
+//    pcl::console::print_highlight ("Estimating scene normals...\n");
+//    pcl::NormalEstimationOMP<PointNT,PointNT> nest;
+//    nest.setRadiusSearch (0.01);
+//    nest.setInputCloud (scene);
+//    nest.compute (*scene);
 
     // Estimate features
     pcl::console::print_highlight ("Estimating features...\n");
