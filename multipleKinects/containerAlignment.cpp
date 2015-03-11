@@ -236,8 +236,8 @@ Eigen::Matrix4f coarseAlignment(pcl::PointCloud<PointT>::Ptr src_cloud, pcl::Poi
     pcl::ScopeTime t("SAC-IA");
 
     pcl::SampleConsensusInitialAlignment<PointT, PointT, pcl::FPFHSignature33> sac_ia;
-    float min_sample_distance = 0.1;
-    float max_correspondence_distance = 1;
+    float min_sample_distance = 0.05;
+    float max_correspondence_distance = 0.05;
     int nr_iterations = 500;
 
 
@@ -344,7 +344,7 @@ void filterScenePointsFromAlignedModel(pcl::PointCloud<PointT>::Ptr aligned_mode
 pcl::PointCloud<PointT>::Ptr downsample(pcl::PointCloud<PointT>::Ptr cloud){
     pcl::PointCloud<PointT>::Ptr returnCloud(new pcl::PointCloud<PointT>);
     pcl::VoxelGrid<PointT> grid;
-    const float leaf = 0.008f;
+    const float leaf = 0.01f;
     grid.setLeafSize (leaf, leaf, leaf);
     grid.setInputCloud (cloud);
     grid.filter (*returnCloud);
@@ -366,12 +366,13 @@ int main (int argc, char** argv){
     Eigen::Matrix4f tf1_matrix = computeMatrixFromTransform(-0.012687, 0.2937498, 1.0124953, -0.36378023, -0.32528895, -0.56674915, 0.663812041);
     Eigen::Matrix4f tf2_matrix = computeMatrixFromTransform(-0.1223497, 0.28168088, 1.1013584, -0.5120674, -0.0235908, -0.04915027, 0.85721325);
     Eigen::Matrix4f coord_transform = tf1_matrix * tf2_matrix.inverse();
+    pcl::transformPointCloud(*in2, *in2, coord_transform);
 
     // Uniform Sampling
-    pcl::PointCloud<PointT>::Ptr in_sampled1(new pcl::PointCloud<PointT>);
-    pcl::PointCloud<PointT>::Ptr in_sampled2(new pcl::PointCloud<PointT>);
-    in_sampled1 = computeUniformSampling(in1, 0.02);
-    in_sampled2 = computeUniformSampling(in2, 0.02);
+//    pcl::PointCloud<PointT>::Ptr in_sampled1(new pcl::PointCloud<PointT>);
+//    pcl::PointCloud<PointT>::Ptr in_sampled2(new pcl::PointCloud<PointT>);
+//    in_sampled1 = computeUniformSampling(in1, 0.02);
+//    in_sampled2 = computeUniformSampling(in2, 0.02);
 //    container_model = computeUniformSampling(container_model, 0.01);
 
     // Calculate Normals for every pointcloud
@@ -381,20 +382,32 @@ int main (int argc, char** argv){
 
 
 //    // downsample
-    in1 = downsample(in1);
-    in2 = downsample(in2);
-//    container_model = downsample(container_model);
+    in1 = computeUniformSampling(in1, 0.01);
+    in2 = computeUniformSampling(in2, 0.01);
+    container_model = computeUniformSampling(container_model, 0.01);
 
 
-//    // Calculate FPFH Features for every pointcloud
-//    pcl::PointCloud<pcl::FPFHSignature33>::Ptr in1_fpfh = computeFPFH(in1);
-//    pcl::PointCloud<pcl::FPFHSignature33>::Ptr in2_fpfh = computeFPFH(in2);
-//    pcl::PointCloud<pcl::FPFHSignature33>::Ptr container_model_fpfh = computeFPFH(container_model);
+    // Calculate FPFH Features for every pointcloud
+    pcl::PointCloud<pcl::FPFHSignature33>::Ptr in1_fpfh = computeFPFH(in1);
+    pcl::PointCloud<pcl::FPFHSignature33>::Ptr in2_fpfh = computeFPFH(in2);
+    pcl::PointCloud<pcl::FPFHSignature33>::Ptr container_model_fpfh = computeFPFH(container_model);
 
 
-    // Coarse Alignment
+    // Model to scene 2 Alignment
+    Eigen::Matrix4f model_to_scene_2_coarse = coarseAlignment(container_model, container_model_fpfh, in2, in2_fpfh);
+   // Eigen::Matrix4f model_to_scene_2_icp = align_icp(container_model, in2, model_to_scene_2_coarse, 0.1);
+    pcl::PointCloud<PointT>::Ptr container_scene2(new pcl::PointCloud<PointT>);
+    pcl::transformPointCloud(*container_model, *container_scene2, model_to_scene_2_coarse);
 
-//    Eigen::Matrix4f model_to_scene_2 = coarseAlignment(container_model, container_model_fpfh, in2, in2_fpfh);
+    pclViewer->addPointCloud (container_scene2, ColorHandlerT(container_scene2, 255.0, 255.0, 0.0), "in1");
+    pclViewer->setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 1, "in1");
+
+    pclViewer->addPointCloud (in2, ColorHandlerT(in2, 255.0, 0.0, 0.0), "in2");
+    pclViewer->setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 1, "in2");
+
+
+
+
 //    Eigen::Matrix4f model_to_scene_1 = ransac_prerejective(container_model, container_model_fpfh, in1, in1_fpfh);
    // Eigen::Matrix4f model_to_scene_2 = ransac_prerejective(container_model, container_model_fpfh, in2, in2_fpfh);
 
@@ -429,19 +442,17 @@ int main (int argc, char** argv){
 
 
 
-    Eigen::Matrix4f icp_transform = align_icp(in_sampled2, in_sampled1, coord_transform, 0.02);
-    pcl::transformPointCloud(*in2, *icp_aligned_cloud, icp_transform);
+//    Eigen::Matrix4f icp_transform = align_icp(in_sampled2, in_sampled1, coord_transform, 0.02);
+//    pcl::transformPointCloud(*in2, *icp_aligned_cloud, icp_transform);
 
 
-    *out = *in1 + *icp_aligned_cloud;
-    out = downsample(out);
+//    *out = *in1 + *icp_aligned_cloud;
+//    out = downsample(out);
 
 
-    pclViewer->addPointCloud (in1, ColorHandlerT(in1, 255.0, 255.0, 0.0), "in1");
-    pclViewer->setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 1, "in1");
 
-    pclViewer->addPointCloud (icp_aligned_cloud, ColorHandlerT(icp_aligned_cloud, 255.0, 0.0, 0.0), "in2");
-    pclViewer->setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 1, "in2");
+
+
 
 
 
