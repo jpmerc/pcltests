@@ -33,7 +33,7 @@ typedef pcl::visualization::PointCloudColorHandlerCustom<PointT> ColorHandlerT;
 using namespace std;
 
 boost::shared_ptr<pcl::visualization::PCLVisualizer> pclViewer (new pcl::visualization::PCLVisualizer ("3D Viewer"));
-//boost::shared_ptr<pcl::visualization::PCLVisualizer> pclViewer2 (new pcl::visualization::PCLVisualizer ("Tests"));
+boost::shared_ptr<pcl::visualization::PCLVisualizer> pclViewer2 (new pcl::visualization::PCLVisualizer ("Tests"));
 
 
 pcl::PointCloud<PointT>::Ptr in1(new pcl::PointCloud<PointT>);
@@ -66,14 +66,14 @@ void initPCLViewer(){
     renderWindow->SetSize(800,450);
     renderWindow->Render();
 
-//    //PCL Viewer 2 (for testing)
-//    pclViewer2->registerKeyboardCallback (keyboardEventOccurred, (void*)&pclViewer2);
-//    pclViewer2->setBackgroundColor (0, 0, 0);
-//    pclViewer2->initCameraParameters ();
-//    pclViewer2->setCameraPosition(0,0,0,0,0,1,0,-1,0);
-//    vtkSmartPointer<vtkRenderWindow> renderWindow2 = pclViewer2->getRenderWindow();
-//    renderWindow2->SetSize(800,450);
-//    renderWindow2->Render();
+    //PCL Viewer 2 (for testing)
+   //pclViewer2->registerKeyboardCallback (keyboardEventOccurred, (void*)&pclViewer2);
+    pclViewer2->setBackgroundColor (0, 0, 0);
+    pclViewer2->initCameraParameters ();
+    pclViewer2->setCameraPosition(0,0,0,0,0,1,0,-1,0);
+    vtkSmartPointer<vtkRenderWindow> renderWindow2 = pclViewer2->getRenderWindow();
+    renderWindow2->SetSize(800,450);
+    renderWindow2->Render();
 }
 
 void keyboardEventOccurred (const pcl::visualization::KeyboardEvent &event, void* viewer_void)
@@ -259,7 +259,7 @@ pcl::PointCloud<pcl::FPFHSignature33>::Ptr computeFPFHPersistence(pcl::PointClou
     scale_values.push_back(0.05);
     pcl::MultiscaleFeaturePersistence<PointT, pcl::FPFHSignature33> feature_persistence;
     feature_persistence.setScalesVector (scale_values);
-    feature_persistence.setAlpha (1.2);
+    feature_persistence.setAlpha (1.);
     feature_persistence.setFeatureEstimator (fpfh_est);
     feature_persistence.setDistanceMetric (pcl::CS);
 
@@ -284,13 +284,15 @@ Eigen::Matrix4f coarseAlignment(pcl::PointCloud<PointT>::Ptr src_cloud, pcl::Poi
 
     pcl::SampleConsensusInitialAlignment<PointT, PointT, pcl::FPFHSignature33> sac_ia;
     float min_sample_distance = 0.05;
-    float max_correspondence_distance = 1.0;
-    int nr_iterations = 100;
+    float max_correspondence_distance = 3.0;
+    int nr_iterations = 200;
 
 
     sac_ia.setMinSampleDistance (min_sample_distance);
     sac_ia.setMaxCorrespondenceDistance (max_correspondence_distance);
     sac_ia.setMaximumIterations (nr_iterations);
+    sac_ia.setNumberOfSamples(3);
+    sac_ia.setCorrespondenceRandomness(10);
 
     sac_ia.setInputTarget (target_cloud);
     sac_ia.setTargetFeatures (target_features);
@@ -363,9 +365,14 @@ Eigen::Matrix4f align_icp(pcl::PointCloud<PointT>::Ptr src_cloud, pcl::PointClou
     icp.setInputTarget(target_cloud);
     icp.setMaxCorrespondenceDistance(maxCorrespondanceDistance);
     icp.setMaximumIterations(40);
+    //icp.setRANSACOutlierRejectionThreshold(0.02);
+    //icp.setUseReciprocalCorrespondences(true);
+
     pcl::PointCloud<PointT>::Ptr Final(new pcl::PointCloud<PointT>());
     icp.align(*Final,initial_transform);
     Eigen::Matrix4f icp_transform = icp.getFinalTransformation();
+    double fitness_score = icp.getFitnessScore();
+    cout << "ICP Transformation Score = " << fitness_score << endl;
 
     return icp_transform;
 }
@@ -426,17 +433,29 @@ int main (int argc, char** argv){
 
 
     // downsample
+    pcl::PointCloud<PointT>::Ptr in1_subsampled(new pcl::PointCloud<PointT>);
+    pcl::PointCloud<PointT>::Ptr in2_subsampled(new pcl::PointCloud<PointT>);
+    pcl::PointCloud<PointT>::Ptr in1_subsampled_icp(new pcl::PointCloud<PointT>);
+    pcl::PointCloud<PointT>::Ptr in2_subsampled_icp(new pcl::PointCloud<PointT>);
     in1 = computeUniformSampling(in1, 0.01);
+    in1_subsampled = computeUniformSampling(in1, 0.015);
     in2 = computeUniformSampling(in2, 0.01);
+    in2_subsampled = computeUniformSampling(in2, 0.015);
+    in1_subsampled_icp = computeUniformSampling(in2, 0.02);
+    in2_subsampled_icp = computeUniformSampling(in2, 0.02);
     container_model = computeUniformSampling(container_model, 0.01);
+
+
+
+
 
 
     // Calculate FPFH Features for every pointcloud
     pcl::PointCloud<PointT>::Ptr in1_persistent(new pcl::PointCloud<PointT>);
     pcl::PointCloud<PointT>::Ptr in2_persistent(new pcl::PointCloud<PointT>);
     pcl::PointCloud<PointT>::Ptr container_model_persistent(new pcl::PointCloud<PointT>);
-   // pcl::PointCloud<pcl::FPFHSignature33>::Ptr in1_fpfh = computeFPFHPersistence(in1, in1_persistent);
-    pcl::PointCloud<pcl::FPFHSignature33>::Ptr in2_fpfh = computeFPFHPersistence(in2, in2_persistent);
+    pcl::PointCloud<pcl::FPFHSignature33>::Ptr in1_fpfh = computeFPFHPersistence(in1_subsampled, in1_persistent);
+    pcl::PointCloud<pcl::FPFHSignature33>::Ptr in2_fpfh = computeFPFHPersistence(in2_subsampled, in2_persistent);
     pcl::PointCloud<pcl::FPFHSignature33>::Ptr container_model_fpfh = computeFPFHPersistence(container_model, container_model_persistent);
 //    pcl::PointCloud<pcl::FPFHSignature33>::Ptr in1_fpfh = computeFPFH(in1);
 //    pcl::PointCloud<pcl::FPFHSignature33>::Ptr in2_fpfh = computeFPFH(in2);
@@ -445,7 +464,7 @@ int main (int argc, char** argv){
 
     // Model to scene 2 Alignment
     Eigen::Matrix4f model_to_scene_2_coarse = coarseAlignment(container_model_persistent, container_model_fpfh, in2_persistent, in2_fpfh);
-    Eigen::Matrix4f model_to_scene_2_icp = align_icp(container_model, in2, model_to_scene_2_coarse, 0.1);
+    Eigen::Matrix4f model_to_scene_2_icp = align_icp(container_model, in2, model_to_scene_2_coarse, 0.8);
 //    Eigen::Matrix4f model_to_scene_2_coarse = coarseAlignment(container_model, container_model_fpfh, in2, in2_fpfh);
 //    Eigen::Matrix4f model_to_scene_2_icp = align_icp(container_model, in2, model_to_scene_2_coarse, 0.1);
     pcl::PointCloud<PointT>::Ptr container_scene2_coarse(new pcl::PointCloud<PointT>);
@@ -465,60 +484,24 @@ int main (int argc, char** argv){
 
 
 
-//    Eigen::Matrix4f model_to_scene_1 = ransac_prerejective(container_model, container_model_fpfh, in1, in1_fpfh);
-   // Eigen::Matrix4f model_to_scene_2 = ransac_prerejective(container_model, container_model_fpfh, in2, in2_fpfh);
+    // Model to scene 1 Alignment
+    Eigen::Matrix4f model_to_scene_1_coarse = coarseAlignment(container_model_persistent, container_model_fpfh, in1_persistent, in1_fpfh);
+    Eigen::Matrix4f model_to_scene_1_icp = align_icp(container_model, in1, model_to_scene_1_coarse, 0.8);
+//    Eigen::Matrix4f model_to_scene_1_coarse = coarseAlignment(container_model, container_model_fpfh, in1, in1_fpfh);
+//    Eigen::Matrix4f model_to_scene_1_icp = align_icp(container_model, in1, model_to_scene_1_coarse, 0.1);
+    pcl::PointCloud<PointT>::Ptr container_scene1_coarse(new pcl::PointCloud<PointT>);
+    pcl::PointCloud<PointT>::Ptr container_scene1_icp(new pcl::PointCloud<PointT>);
+    pcl::transformPointCloud(*container_model, *container_scene1_coarse, model_to_scene_1_coarse);
+    pcl::transformPointCloud(*container_model, *container_scene1_icp, model_to_scene_1_icp);
 
-   // pcl::PointCloud<PointT>::Ptr container_scene2(new pcl::PointCloud<PointT>);
+    pclViewer2->addPointCloud (container_scene1_coarse, ColorHandlerT(container_scene2_coarse, 255.0, 255.0, 0.0), "coarse");
+    pclViewer2->setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 1, "coarse");
 
-  //  pcl::transformPointCloud(*container_model, *container_scene2, model_to_scene_2);
+    pclViewer2->addPointCloud (container_scene1_icp, ColorHandlerT(container_scene1_icp, 0.0, 0.0, 255.0), "icp");
+    pclViewer2->setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 1, "icp");
 
-
-//    Eigen::Matrix4f model_to_scene_1 = coarseAlignment(container_model, container_model_fpfh, in1, in1_fpfh);
-//    pcl::PointCloud<PointT>::Ptr container_scene1(new pcl::PointCloud<PointT>);
-//     pcl::transformPointCloud(*container_model, *container_scene1, model_to_scene_1);
-
-//    pcl::visualization::PointCloudColorHandlerCustom<PointT> yellow2(container_scene1, 255.0, 255.0, 0.0);
-//    pclViewer2->addPointCloud (container_scene1, yellow2, "model");
-//    pclViewer2->setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 1, "model");
-
-////    pcl::visualization::PointCloudColorHandlerCustom<PointT> yellow3(container_scene2, 255.0, 255.0, 0.0);
-////    pclViewer2->addPointCloud (container_scene2, yellow3, "model2");
-////    pclViewer2->setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 1, "model2");
-
-
-//    pcl::visualization::PointCloudColorHandlerCustom<PointT> red2(in1, 255.0, 0.0, 0.0);
-//    pclViewer2->addPointCloud (in1, red2, "scene");
-//    pclViewer2->setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 1, "scene");
-
-//    pcl::visualization::PointCloudColorHandlerCustom<PointT> blue(in2, 0.0, 0.0, 255.0);
-//    pclViewer2->addPointCloud (in2, blue, "scene2");
-//    pclViewer2->setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 1, "scene2");
-
-
-    //pcl::transformPointCloud(*in2, *in2_transformed, coord_transform);
-
-
-
-//    Eigen::Matrix4f icp_transform = align_icp(in_sampled2, in_sampled1, coord_transform, 0.02);
-//    pcl::transformPointCloud(*in2, *icp_aligned_cloud, icp_transform);
-
-
-//    *out = *in1 + *icp_aligned_cloud;
-//    out = downsample(out);
-
-
-
-
-
-
-
-
-    //        pcl::visualization::PointCloudColorHandlerRGBField<PointT> rgb(out);
-    //        pclViewer->addPointCloud<PointT>(out,rgb,"out");
-    //        pclViewer->setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 1, "out");
-
-
-
+    pclViewer2->addPointCloud (in1, ColorHandlerT(in1, 255.0, 0.0, 0.0), "in1");
+    pclViewer2->setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 1, "in1");
 
     while (!pclViewer->wasStopped()) {
         pclViewer->spinOnce (100);
