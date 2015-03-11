@@ -648,8 +648,34 @@ main (int argc, char **argv)
 
 
 
-    // VISUALIZATION
+
+//    // Visualize the segmented object at the end
+//    pcl::visualization::PCLVisualizer visu("Alignment");
+//    pcl::visualization::PointCloudColorHandlerCustom<pcl::PointXYZ> red(transformed_cloud_icp, 255.0, 0.0, 0.0);
+//    visu.addPointCloud (transformed_cloud_icp, red, "scene");
+
+//    pcl::visualization::PointCloudColorHandlerCustom<pcl::PointXYZ> yellow(concaveHull, 255.0, 255.0, 0.0);
+//    visu.addPointCloud (concaveHull, yellow, "plane");
+//    visu.setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 5, "plane");
+
+//    pcl::visualization::PointCloudColorHandlerCustom<pcl::PointXYZ> pale_blue(segmented_objects, 0.0, 255.0, 255.0);
+//    visu.addPointCloud (segmented_objects, pale_blue, "object");
+
+
+
+
+    // Visualize the alignment
     pcl::visualization::PCLVisualizer visu("Alignment");
+
+    pcl::visualization::PointCloudColorHandlerCustom<pcl::PointXYZ> red(cloud, 255.0, 0.0, 0.0);
+    visu.addPointCloud (cloud, red, "aligned_model");
+
+    pcl::visualization::PointCloudColorHandlerCustom<pcl::PointXYZ> yellow(transformed_cloud, 255.0, 255.0, 0.0);
+    visu.addPointCloud (transformed_cloud, yellow, "scene");
+
+
+    // VISUALIZATION
+
 
     //pcl::visualization::PointCloudColorHandlerCustom<pcl::PointXYZ> green(transformed_cloud, 0.0, 255.0, 0.0);
     //visu.addPointCloud (transformed_cloud, green, "sac-ia");
@@ -657,19 +683,16 @@ main (int argc, char **argv)
     //    pcl::visualization::PointCloudColorHandlerCustom<pcl::PointXYZ> blue(transformed_cloud_icp, 0.0, 0.0, 255.0);
     //    visu.addPointCloud (transformed_cloud_icp, blue, "icp");
 
-    pcl::visualization::PointCloudColorHandlerCustom<pcl::PointXYZ> red(transformed_cloud_icp, 255.0, 0.0, 0.0);
-    visu.addPointCloud (transformed_cloud_icp, red, "scene");
 
-    pcl::visualization::PointCloudColorHandlerCustom<pcl::PointXYZ> yellow(concaveHull, 255.0, 255.0, 0.0);
-    visu.addPointCloud (concaveHull, yellow, "plane");
-    visu.setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 5, "plane");
+
+
 
     //    pcl::visualization::PointCloudColorHandlerCustom<pcl::PointXYZ> pale_blue(concaveHull, 0.0, 255.0, 255.0);
     //    visu.addPointCloud (concaveHull, pale_blue, "hull");
     //    visu.setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 10, "hull");
 
-    pcl::visualization::PointCloudColorHandlerCustom<pcl::PointXYZ> pale_blue(segmented_objects, 0.0, 255.0, 255.0);
-    visu.addPointCloud (segmented_objects, pale_blue, "object");
+//    pcl::visualization::PointCloudColorHandlerCustom<pcl::PointXYZ> pale_blue(segmented_objects, 0.0, 255.0, 255.0);
+//    visu.addPointCloud (segmented_objects, pale_blue, "object");
 //    visu.setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 1, "object");
 
 
