@@ -34,6 +34,7 @@ using namespace std;
 
 boost::shared_ptr<pcl::visualization::PCLVisualizer> pclViewer (new pcl::visualization::PCLVisualizer ("3D Viewer"));
 boost::shared_ptr<pcl::visualization::PCLVisualizer> pclViewer2 (new pcl::visualization::PCLVisualizer ("Tests"));
+boost::shared_ptr<pcl::visualization::PCLVisualizer> pclViewer3 (new pcl::visualization::PCLVisualizer ("Object Alignment"));
 
 
 pcl::PointCloud<PointT>::Ptr in1(new pcl::PointCloud<PointT>);
@@ -74,6 +75,14 @@ void initPCLViewer(){
     vtkSmartPointer<vtkRenderWindow> renderWindow2 = pclViewer2->getRenderWindow();
     renderWindow2->SetSize(800,450);
     renderWindow2->Render();
+
+
+    pclViewer3->setBackgroundColor (0, 0, 0);
+    pclViewer3->initCameraParameters ();
+    pclViewer3->setCameraPosition(0,0,0,0,0,1,0,-1,0);
+    vtkSmartPointer<vtkRenderWindow> renderWindow3 = pclViewer3->getRenderWindow();
+    renderWindow3->SetSize(800,450);
+    renderWindow3->Render();
 }
 
 void keyboardEventOccurred (const pcl::visualization::KeyboardEvent &event, void* viewer_void)
@@ -259,9 +268,9 @@ pcl::PointCloud<pcl::FPFHSignature33>::Ptr computeFPFHPersistence(pcl::PointClou
     scale_values.push_back(0.05);
     pcl::MultiscaleFeaturePersistence<PointT, pcl::FPFHSignature33> feature_persistence;
     feature_persistence.setScalesVector (scale_values);
-    feature_persistence.setAlpha (1.2);
+    feature_persistence.setAlpha (0.6);
     feature_persistence.setFeatureEstimator (fpfh_est);
-    feature_persistence.setDistanceMetric (pcl::CS);
+    feature_persistence.setDistanceMetric (pcl::KL);
 
     boost::shared_ptr<std::vector<int> > output_indices (new std::vector<int> ());
     feature_persistence.determinePersistentFeatures (*features, output_indices);
@@ -396,6 +405,7 @@ void filterScenePointsFromAlignedModel(pcl::PointCloud<PointT>::Ptr aligned_mode
 }
 
 pcl::PointCloud<PointT>::Ptr downsample(pcl::PointCloud<PointT>::Ptr cloud, double voxel_size){
+    pcl::ScopeTime t("Voxel_grid Filtering");
     pcl::PointCloud<PointT>::Ptr returnCloud(new pcl::PointCloud<PointT>);
     pcl::VoxelGrid<PointT> grid;
     const float leaf = voxel_size;
@@ -435,6 +445,7 @@ int main (int argc, char** argv){
     // downsample
     pcl::PointCloud<PointT>::Ptr in1_subsampled(new pcl::PointCloud<PointT>);
     pcl::PointCloud<PointT>::Ptr in2_subsampled(new pcl::PointCloud<PointT>);
+    pcl::PointCloud<PointT>::Ptr container_model_subsampled(new pcl::PointCloud<PointT>);
     pcl::PointCloud<PointT>::Ptr in1_subsampled_icp(new pcl::PointCloud<PointT>);
     pcl::PointCloud<PointT>::Ptr in2_subsampled_icp(new pcl::PointCloud<PointT>);
     in1 = computeUniformSampling(in1, 0.01);
@@ -444,29 +455,26 @@ int main (int argc, char** argv){
     in1_subsampled_icp = computeUniformSampling(in2, 0.02);
     in2_subsampled_icp = computeUniformSampling(in2, 0.02);
     container_model = computeUniformSampling(container_model, 0.01);
-
-
-
-
+    container_model_subsampled = computeUniformSampling(container_model, 0.015);
 
 
     // Calculate FPFH Features for every pointcloud
     pcl::PointCloud<PointT>::Ptr in1_persistent(new pcl::PointCloud<PointT>);
     pcl::PointCloud<PointT>::Ptr in2_persistent(new pcl::PointCloud<PointT>);
     pcl::PointCloud<PointT>::Ptr container_model_persistent(new pcl::PointCloud<PointT>);
-    pcl::PointCloud<pcl::FPFHSignature33>::Ptr in1_fpfh = computeFPFHPersistence(in1_subsampled, in1_persistent);
-    pcl::PointCloud<pcl::FPFHSignature33>::Ptr in2_fpfh = computeFPFHPersistence(in2_subsampled, in2_persistent);
-    pcl::PointCloud<pcl::FPFHSignature33>::Ptr container_model_fpfh = computeFPFHPersistence(container_model, container_model_persistent);
-//    pcl::PointCloud<pcl::FPFHSignature33>::Ptr in1_fpfh = computeFPFH(in1);
-//    pcl::PointCloud<pcl::FPFHSignature33>::Ptr in2_fpfh = computeFPFH(in2);
-//    pcl::PointCloud<pcl::FPFHSignature33>::Ptr container_model_fpfh = computeFPFH(container_model);
+//    pcl::PointCloud<pcl::FPFHSignature33>::Ptr in1_fpfh = computeFPFHPersistence(in1_subsampled, in1_persistent);
+//    pcl::PointCloud<pcl::FPFHSignature33>::Ptr in2_fpfh = computeFPFHPersistence(in2_subsampled, in2_persistent);
+//    pcl::PointCloud<pcl::FPFHSignature33>::Ptr container_model_fpfh = computeFPFHPersistence(container_model, container_model_persistent);
+    pcl::PointCloud<pcl::FPFHSignature33>::Ptr in1_fpfh = computeFPFH(in1_subsampled);
+    pcl::PointCloud<pcl::FPFHSignature33>::Ptr in2_fpfh = computeFPFH(in2_subsampled);
+    pcl::PointCloud<pcl::FPFHSignature33>::Ptr container_model_fpfh = computeFPFH(container_model_subsampled);
 
 
     // Model to scene 2 Alignment
-    Eigen::Matrix4f model_to_scene_2_coarse = coarseAlignment(container_model_persistent, container_model_fpfh, in2_persistent, in2_fpfh);
+//    Eigen::Matrix4f model_to_scene_2_coarse = coarseAlignment(container_model_persistent, container_model_fpfh, in2_persistent, in2_fpfh);
+//    Eigen::Matrix4f model_to_scene_2_icp = align_icp(container_model, in2, model_to_scene_2_coarse, 0.8);
+    Eigen::Matrix4f model_to_scene_2_coarse = coarseAlignment(container_model_subsampled, container_model_fpfh, in2_subsampled, in2_fpfh);
     Eigen::Matrix4f model_to_scene_2_icp = align_icp(container_model, in2, model_to_scene_2_coarse, 0.8);
-//    Eigen::Matrix4f model_to_scene_2_coarse = coarseAlignment(container_model, container_model_fpfh, in2, in2_fpfh);
-//    Eigen::Matrix4f model_to_scene_2_icp = align_icp(container_model, in2, model_to_scene_2_coarse, 0.1);
     pcl::PointCloud<PointT>::Ptr container_scene2_coarse(new pcl::PointCloud<PointT>);
     pcl::PointCloud<PointT>::Ptr container_scene2_icp(new pcl::PointCloud<PointT>);
     pcl::transformPointCloud(*container_model, *container_scene2_coarse, model_to_scene_2_coarse);
@@ -482,10 +490,8 @@ int main (int argc, char** argv){
     pclViewer->setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 1, "in2");
 
 
-
-
     // Model to scene 1 Alignment
-    Eigen::Matrix4f model_to_scene_1_coarse = coarseAlignment(container_model_persistent, container_model_fpfh, in1_persistent, in1_fpfh);
+    Eigen::Matrix4f model_to_scene_1_coarse = coarseAlignment(container_model_subsampled, container_model_fpfh, in1_subsampled, in1_fpfh);
     Eigen::Matrix4f model_to_scene_1_icp = align_icp(container_model, in1, model_to_scene_1_coarse, 0.8);
 //    Eigen::Matrix4f model_to_scene_1_coarse = coarseAlignment(container_model, container_model_fpfh, in1, in1_fpfh);
 //    Eigen::Matrix4f model_to_scene_1_icp = align_icp(container_model, in1, model_to_scene_1_coarse, 0.1);
@@ -502,6 +508,69 @@ int main (int argc, char** argv){
 
     pclViewer2->addPointCloud (in1, ColorHandlerT(in1, 255.0, 0.0, 0.0), "in1");
     pclViewer2->setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 1, "in1");
+
+
+    // Crop box on points of the scene 2
+    pcl::ConvexHull<PointT> hull2;
+    pcl::PointCloud<PointT>::Ptr surface_hull2 (new pcl::PointCloud<PointT>);
+    hull2.setInputCloud(container_scene2_icp);
+    hull2.setDimension(3);
+    std::vector<pcl::Vertices> polygons2;
+    hull2.reconstruct(*surface_hull2, polygons2);
+
+    pcl::PointCloud<PointT>::Ptr objects2 (new pcl::PointCloud<PointT>);
+    pcl::CropHull<PointT> bb_filter2;
+    bb_filter2.setDim(3);
+    bb_filter2.setInputCloud(in2);
+    bb_filter2.setHullIndices(polygons2);
+    bb_filter2.setHullCloud(surface_hull2);
+    bb_filter2.filter(*objects2);
+
+    pclViewer->addPointCloud (objects2, ColorHandlerT(objects2, 0.0, 255.0, 0.0), "hull2");
+    pclViewer->setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 3, "hull2");
+
+
+    // Crop box on points of the scene 1
+    pcl::ConvexHull<PointT> hull;
+    pcl::PointCloud<PointT>::Ptr surface_hull (new pcl::PointCloud<PointT>);
+    hull.setInputCloud(container_scene1_icp);
+    hull.setDimension(3);
+    std::vector<pcl::Vertices> polygons;
+    hull.reconstruct(*surface_hull, polygons);
+
+    pcl::PointCloud<PointT>::Ptr objects (new pcl::PointCloud<PointT>);
+    pcl::CropHull<PointT> bb_filter;
+    bb_filter.setDim(3);
+    bb_filter.setInputCloud(in1);
+    bb_filter.setHullIndices(polygons);
+    bb_filter.setHullCloud(surface_hull);
+    bb_filter.filter(*objects);
+
+    pclViewer2->addPointCloud (objects, ColorHandlerT(objects, 0.0, 255.0, 0.0), "hull1");
+    pclViewer2->setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 3, "hull1");
+
+
+
+    // Align Container in scene 2 to container in scene 1
+    pcl::PointCloud<PointT>::Ptr transformed_object (new pcl::PointCloud<PointT>);
+    Eigen::Matrix4f guess; guess.setZero(); guess(0,0)=1;guess(1,1)=1;guess(2,2)=1;guess(3,3)=1;
+    Eigen::Matrix4f scene_to_scene_icp = align_icp(objects2, objects, guess, 0.05);
+    pcl::transformPointCloud(*objects2, *transformed_object, scene_to_scene_icp);
+
+
+    pclViewer3->addPointCloud (objects, ColorHandlerT(objects, 255.0, 0.0, 0.0), "obj1");
+    pclViewer3->setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 1, "obj1");
+
+    pclViewer3->addPointCloud (objects2, ColorHandlerT(objects2, 0.0, 255.0, 0.0), "obj2");
+    pclViewer3->setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 1, "obj2");
+
+    pclViewer3->addPointCloud (transformed_object, ColorHandlerT(transformed_object, 0.0, 0.0, 255.0), "obj3");
+    pclViewer3->setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 1, "obj3");
+
+
+
+
+
 
     while (!pclViewer->wasStopped()) {
         pclViewer->spinOnce (100);

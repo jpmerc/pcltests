@@ -1,0 +1,12 @@
+# This file contains the fitness score (sum of squared distances from the source to the target) for the container to container alignment (error on the container alignment)
+
+0.000278361
+0.000365577
+0.00027363
+0.000273661
+0.000286679
+0.000261836
+0.000271952
+0.000269297
+0.000274921
+0.000263524
