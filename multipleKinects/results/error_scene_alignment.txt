@@ -1,0 +1,18 @@
+# This file contains the fitness score (sum of squared distances from the source to the target) for the scene to scene alignment (error on the container alignment only)
+
+
+0.000396988
+0.000326084
+0.000318592
+0.000325537
+0.000326018
+0.000324075
+0.000322383
+0.000326118
+0.000319412
+0.000323364
+
+Average = 0.0003308571
+
+
+

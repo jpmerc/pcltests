@@ -13,3 +13,6 @@ target_link_libraries (multipleKinects ${PCL_LIBRARIES})
 
 add_executable (containerAlignment containerAlignment.cpp)
 target_link_libraries (containerAlignment ${PCL_LIBRARIES})
+
+add_executable (sceneAlignment sceneAlignment.cpp)
+target_link_libraries (sceneAlignment ${PCL_LIBRARIES})
