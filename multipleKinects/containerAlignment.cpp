@@ -27,6 +27,8 @@
 #include <pcl/registration/sample_consensus_prerejective.h>
 #include <pcl/common/time.h>
 #include <pcl/features/multiscale_feature_persistence.h>
+#include <pcl/registration/ndt.h>
+#include <pcl/filters/median_filter.h>
 
 typedef pcl::PointXYZRGBNormal PointT;
 typedef pcl::visualization::PointCloudColorHandlerCustom<PointT> ColorHandlerT;
@@ -156,6 +158,21 @@ Eigen::Matrix4f computeMatrixFromTransform(double x, double y, double z, double 
     mat(3,3) = 1;
 
     return mat;
+}
+
+pcl::PointCloud<PointT>::Ptr filter(pcl::PointCloud<PointT>::Ptr cloud){
+
+    pcl::ScopeTime t("Median Filter");
+
+    pcl::PointCloud<PointT>::Ptr cloud_out(new pcl::PointCloud<PointT>);
+    pcl::MedianFilter<PointT> median_filter;
+     median_filter.setInputCloud (cloud);
+     median_filter.setWindowSize (7);
+     median_filter.setMaxAllowedMovement (0.02);
+     median_filter.filter (*cloud_out);
+
+    return cloud_out;
+
 }
 
 pcl::PointCloud<PointT>::Ptr computeUniformSampling(pcl::PointCloud<PointT>::Ptr p_cloudIn, double radius)
@@ -319,6 +336,35 @@ Eigen::Matrix4f coarseAlignment(pcl::PointCloud<PointT>::Ptr src_cloud, pcl::Poi
     return transformation;
 }
 
+Eigen::Matrix4f normalDistributionTransform(pcl::PointCloud<PointT>::Ptr src_cloud, pcl::PointCloud<PointT>::Ptr target_cloud){
+    // Initializing Normal Distributions Transform (NDT).
+      pcl::NormalDistributionsTransform<PointT, PointT> ndt;
+
+      // Setting scale dependent NDT parameters
+      // Setting minimum transformation difference for termination condition.
+      ndt.setTransformationEpsilon (0.01);
+      // Setting maximum step size for More-Thuente line search.
+      ndt.setStepSize (0.1);
+      //Setting Resolution of NDT grid structure (VoxelGridCovariance).
+      ndt.setResolution (1.0);
+
+      // Setting max number of registration iterations.
+      ndt.setMaximumIterations (35);
+
+      // Setting point cloud to be aligned.
+      ndt.setInputSource (src_cloud);
+      // Setting point cloud to be aligned to.
+      ndt.setInputTarget (target_cloud);
+
+      // Calculating required rigid transform to align the input cloud to the target cloud.
+      pcl::PointCloud<PointT>::Ptr output_cloud (new pcl::PointCloud<PointT>);
+      ndt.align (*output_cloud);
+
+
+      Eigen::Matrix4f transformation = ndt.getFinalTransformation();
+      return transformation;
+}
+
 Eigen::Matrix4f ransac_prerejective(pcl::PointCloud<PointT>::Ptr src_cloud, pcl::PointCloud<pcl::FPFHSignature33>::Ptr src_features, pcl::PointCloud<PointT>::Ptr target_cloud, pcl::PointCloud<pcl::FPFHSignature33>::Ptr target_features){
 
     pcl::ScopeTime t("RANSAC Prerejective");
@@ -332,24 +378,26 @@ Eigen::Matrix4f ransac_prerejective(pcl::PointCloud<PointT>::Ptr src_cloud, pcl:
 
     // Instead of matching a descriptor with its nearest neighbor, choose randomly between
     // the N closest ones, making it more robust to outliers, but increasing time.
-    pose.setCorrespondenceRandomness(10);
+    pose.setCorrespondenceRandomness(5);
 
     // Set the fraction (0-1) of inlier points required for accepting a transformation.
     // At least this number of points will need to be aligned to accept a pose.
     pose.setInlierFraction(0.95f);
 
     // Set the number of samples to use during each iteration (minimum for 6 DoF is 3).
-    pose.setNumberOfSamples(5);
+    pose.setNumberOfSamples(3);
 
     // Set the similarity threshold (0-1) between edge lengths of the polygons. The
     // closer to 1, the more strict the rejector will be, probably discarding acceptable poses.
-    pose.setSimilarityThreshold(0.75f);
+    pose.setSimilarityThreshold(0.95f);
 
     // Set the maximum distance threshold between two correspondent points in source and target.
     // If the distance is larger, the points will be ignored in the alignment process.
-    pose.setMaxCorrespondenceDistance(0.5);
+    pose.setMaxCorrespondenceDistance(1.5);
 
-    pose.setMaximumIterations(10000);
+    pose.setMaximumIterations(20000);
+
+    //pose.setEuclideanFitnessEpsilon();
 
     pcl::PointCloud<PointT>::Ptr alignedModel(new pcl::PointCloud<PointT>);
     pose.align(*alignedModel);
@@ -426,6 +474,13 @@ int main (int argc, char** argv){
 
     initPCLViewer();
 
+
+    //Filter
+//    in1 = filter(in1);
+//    in2 = filter(in2);
+//    container_model = filter(container_model);
+
+
     // Find the coarse transformation between the two scans of the scene
     Eigen::Matrix4f tf1_matrix = computeMatrixFromTransform(-0.012687, 0.2937498, 1.0124953, -0.36378023, -0.32528895, -0.56674915, 0.663812041);
     Eigen::Matrix4f tf2_matrix = computeMatrixFromTransform(-0.1223497, 0.28168088, 1.1013584, -0.5120674, -0.0235908, -0.04915027, 0.85721325);
@@ -473,7 +528,7 @@ int main (int argc, char** argv){
     // Model to scene 2 Alignment
 //    Eigen::Matrix4f model_to_scene_2_coarse = coarseAlignment(container_model_persistent, container_model_fpfh, in2_persistent, in2_fpfh);
 //    Eigen::Matrix4f model_to_scene_2_icp = align_icp(container_model, in2, model_to_scene_2_coarse, 0.8);
-    Eigen::Matrix4f model_to_scene_2_coarse = coarseAlignment(container_model_subsampled, container_model_fpfh, in2_subsampled, in2_fpfh);
+    Eigen::Matrix4f model_to_scene_2_coarse = ransac_prerejective(container_model_subsampled, container_model_fpfh, in2_subsampled, in2_fpfh);
     Eigen::Matrix4f model_to_scene_2_icp = align_icp(container_model, in2, model_to_scene_2_coarse, 0.8);
     pcl::PointCloud<PointT>::Ptr container_scene2_coarse(new pcl::PointCloud<PointT>);
     pcl::PointCloud<PointT>::Ptr container_scene2_icp(new pcl::PointCloud<PointT>);
@@ -491,7 +546,7 @@ int main (int argc, char** argv){
 
 
     // Model to scene 1 Alignment
-    Eigen::Matrix4f model_to_scene_1_coarse = coarseAlignment(container_model_subsampled, container_model_fpfh, in1_subsampled, in1_fpfh);
+    Eigen::Matrix4f model_to_scene_1_coarse = ransac_prerejective(container_model_subsampled, container_model_fpfh, in1_subsampled, in1_fpfh);
     Eigen::Matrix4f model_to_scene_1_icp = align_icp(container_model, in1, model_to_scene_1_coarse, 0.8);
 //    Eigen::Matrix4f model_to_scene_1_coarse = coarseAlignment(container_model, container_model_fpfh, in1, in1_fpfh);
 //    Eigen::Matrix4f model_to_scene_1_icp = align_icp(container_model, in1, model_to_scene_1_coarse, 0.1);
