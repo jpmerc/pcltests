@@ -259,7 +259,7 @@ pcl::PointCloud<pcl::FPFHSignature33>::Ptr computeFPFHPersistence(pcl::PointClou
     scale_values.push_back(0.05);
     pcl::MultiscaleFeaturePersistence<PointT, pcl::FPFHSignature33> feature_persistence;
     feature_persistence.setScalesVector (scale_values);
-    feature_persistence.setAlpha (1.);
+    feature_persistence.setAlpha (1.2);
     feature_persistence.setFeatureEstimator (fpfh_est);
     feature_persistence.setDistanceMetric (pcl::CS);
 
@@ -285,7 +285,7 @@ Eigen::Matrix4f coarseAlignment(pcl::PointCloud<PointT>::Ptr src_cloud, pcl::Poi
     pcl::SampleConsensusInitialAlignment<PointT, PointT, pcl::FPFHSignature33> sac_ia;
     float min_sample_distance = 0.05;
     float max_correspondence_distance = 3.0;
-    int nr_iterations = 200;
+    int nr_iterations = 400;
 
 
     sac_ia.setMinSampleDistance (min_sample_distance);
