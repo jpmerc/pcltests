@@ -57,6 +57,8 @@
 
 #include <pcl/visualization/pcl_visualizer.h>
 
+#include <pcl/filters/random_sample.h>
+
 using pcl::visualization::PointCloudColorHandlerGenericField;
 using pcl::visualization::PointCloudColorHandlerCustom;
 
@@ -210,7 +212,7 @@ void pairAlign (const PointCloud::Ptr cloud_src, const PointCloud::Ptr cloud_tgt
   pcl::VoxelGrid<PointT> grid;
   if (downsample)
   {
-    grid.setLeafSize (0.05, 0.05, 0.05);
+    grid.setLeafSize (0.03, 0.03, 0.03);
     grid.setInputCloud (cloud_src);
     grid.filter (*src);
 
@@ -250,8 +252,8 @@ void pairAlign (const PointCloud::Ptr cloud_src, const PointCloud::Ptr cloud_tgt
 
   //
   // Align
-  pcl::IterativeClosestPoint<PointNormalT, PointNormalT> reg;
-  reg.setTransformationEpsilon (1e-6);
+  pcl::IterativeClosestPointNonLinear<PointNormalT, PointNormalT> reg;
+  reg.setTransformationEpsilon (1e-8);
   // Set the maximum distance between two correspondences (src<->tgt) to 10cm
   // Note: adjust this based on the size of your datasets
   reg.setMaxCorrespondenceDistance (2.0);  
@@ -274,6 +276,10 @@ void pairAlign (const PointCloud::Ptr cloud_src, const PointCloud::Ptr cloud_tgt
 
     // save cloud for visualization purpose
     points_with_normals_src = reg_result;
+
+    //Random Subsampling
+
+
 
     // Estimate
     reg.setInputSource (points_with_normals_src);
