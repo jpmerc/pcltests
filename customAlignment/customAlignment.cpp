@@ -400,12 +400,15 @@ Eigen::Matrix4f align_icp(pcl::PointCloud<PointT>::Ptr src_cloud, pcl::PointClou
     typedef pcl::registration::TransformationEstimationPointToPlane<PointT, PointT> PointToPlane;
     boost::shared_ptr<PointToPlane> point_to_plane(new PointToPlane);
 
+    // downsample the input pointclouds
+
+
     pcl::IterativeClosestPoint<PointT, PointT> icp;
     icp.setInputSource(src_cloud);
     icp.setInputTarget(target_cloud);
     icp.setMaxCorrespondenceDistance(0.02);
     icp.setMaximumIterations(40);
-    icp.setTransformationEstimation(point_to_plane);
+    //icp.setTransformationEstimation(point_to_plane);
 
     pcl::PointCloud<PointT>::Ptr Final(new pcl::PointCloud<PointT>());
     icp.align(*Final,initial_transform);
@@ -481,11 +484,10 @@ int main (int argc, char** argv){
 
     
     // Singular Value Decomposition (SVD) with Least Squares Error (fine alignment with only good features)
-    pcl::registration::TransformationEstimationSVD<PointT, PointT> svd;
+   // pcl::registration::TransformationEstimationSVD<PointT, PointT> svd;
     Eigen::Matrix4f svd_transformation;
-//    svd.estimateRigidTransformation(*container_model, *in1, coarse_results.correspondences, svd_transformation);
-    svd.estimateRigidTransformation(*container_model, *in1, coarse_results.correspondences, svd_transformation);
-    //svd_transformation = align_icp()
+//    svd.estimateRigidTransformation(*container_model_keypoints, *in1_keypoints, coarse_results.correspondences, svd_transformation);
+    svd_transformation = align_icp(container_model, in1, coarse_results.transformation);
 
 
     // Transform point clouds and show them
