@@ -1,52 +1,46 @@
-// PCL specific includes
-#include <pcl/point_cloud.h>
-#include <pcl/point_types.h>
-#include <pcl/filters/voxel_grid.h>
-#include <pcl/filters/extract_indices.h>
-#include <pcl/visualization/pcl_visualizer.h>
-#include <pcl/io/pcd_io.h>
-#include <vtkRenderWindow.h>
-#include <pcl/common/transforms.h>
 #include <stdlib.h>
 #include <sstream>
 #include <stdio.h>
-#include <time.h>
+
+// PCL specific includes
+#include <pcl/point_cloud.h>
+#include <pcl/point_types.h>
+
+#include <pcl/visualization/pcl_visualizer.h>
+#include <pcl/io/pcd_io.h>
+#include <vtkRenderWindow.h>
+
 #include <Eigen/Eigen>
 #include <Eigen/Geometry>
 //#include <angles/angles.h>
+
 #include <pcl/common/time.h>
-#include <pcl/filters/fast_bilateral_omp.h>
-#include <pcl/surface/bilateral_upsampling.h>
-#include <pcl/filters/median_filter.h>
+#include <pcl/common/transforms.h>
+#include <pcl/common/angles.h>
+
+#include <pcl/keypoints/iss_3d.h>
+
 #include <pcl/features/normal_3d.h>
 #include <pcl/features/normal_3d_omp.h>
-#include <pcl/registration/correspondence_estimation.h>
 #include <pcl/features/fpfh.h>
 #include <pcl/features/fpfh_omp.h>
+
+#include <pcl/registration/correspondence_estimation.h>
 #include <pcl/registration/correspondence_rejection_sample_consensus.h>
 #include <pcl/registration/correspondence_rejection_median_distance.h>
 #include <pcl/registration/correspondence_rejection_surface_normal.h>
-#include <pcl/registration/correspondence_rejection_one_to_one.h>
-#include <pcl/registration/correspondence_rejection_features.h>
-#include <pcl/registration/transformation_estimation_svd.h>
-#include <pcl/registration/transformation_estimation_lm.h>
-#include <pcl/registration/transformation_estimation_point_to_plane.h>
-#include <pcl/registration/transformation_estimation_point_to_plane_lls.h>
-#include <pcl/keypoints/iss_3d.h>
-#include <pcl/keypoints/harris_3d.h>
 #include <pcl/registration/icp.h>
 
-#include <pcl/range_image/range_image.h>
-#include <pcl/range_image/range_image_planar.h>
-#include <pcl/visualization/range_image_visualizer.h>
-#include <pcl/features/range_image_border_extractor.h>
-#include <pcl/keypoints/narf_keypoint.h>
-#include <pcl/features/narf_descriptor.h>
+#include <pcl/filters/sampling_surface_normal.h>
+#include <pcl/filters/voxel_grid.h>
+#include <pcl/filters/extract_indices.h>
+
+#include <boost/thread.hpp>
+
 
 /*
   This file aligns point clouds with each other by rejecting correspondences with RANSAC
-  and then fine tuning the alignement with SVD. The correspondences are calculated
-  by brute force.
+  and then fine tuning the alignement with ICP.
 */
 
 
@@ -55,7 +49,7 @@ typedef pcl::visualization::PointCloudColorHandlerCustom<PointT> ColorHandlerT;
 using namespace std;
 
 boost::shared_ptr<pcl::visualization::PCLVisualizer> pclViewer (new pcl::visualization::PCLVisualizer ("3D Viewer"));
-boost::shared_ptr<pcl::visualization::PCLVisualizer> pclViewer2 (new pcl::visualization::PCLVisualizer ("3D Viewer"));
+//boost::shared_ptr<pcl::visualization::PCLVisualizer> pclViewer2 (new pcl::visualization::PCLVisualizer ("3D Viewer"));
 
 
 struct CorrespondanceResults {
@@ -75,15 +69,14 @@ void initPCLViewer(){
     renderWindow->SetSize(800,450);
     renderWindow->Render();
 
-    pclViewer2->setBackgroundColor (0, 0, 0);
-    pclViewer2->initCameraParameters ();
-    pclViewer2->setCameraPosition(0,0,0,0,0,1,0,-1,0);
-    vtkSmartPointer<vtkRenderWindow> renderWindow2 = pclViewer2->getRenderWindow();
-    renderWindow2->SetSize(800,450);
-    renderWindow2->Render();
+//    pclViewer2->setBackgroundColor (0, 0, 0);
+//    pclViewer2->initCameraParameters ();
+//    pclViewer2->setCameraPosition(0,0,0,0,0,1,0,-1,0);
+//    vtkSmartPointer<vtkRenderWindow> renderWindow2 = pclViewer2->getRenderWindow();
+//    renderWindow2->SetSize(800,450);
+//    renderWindow2->Render();
 
 }
-
 
 pcl::PointCloud<PointT>::Ptr computeSurfaceNormals(pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud)
 {
@@ -174,6 +167,7 @@ pcl::PointCloud<pcl::FPFHSignature33>::Ptr computeFPFH_withKeypoints (pcl::Point
     fpfh_est->setRadiusSearch (0.05);
     //fpfh_est->setIndices();
     fpfh_est->setSearchSurface(searchSurface);
+    fpfh_est->setNumberOfThreads(2);
 
     fpfh_est->compute (*features);
 
@@ -190,6 +184,19 @@ pcl::PointCloud<PointT>::Ptr downsample(pcl::PointCloud<PointT>::Ptr cloud, doub
     grid.setLeafSize (leaf, leaf, leaf);
     grid.setInputCloud (cloud);
     grid.filter (*returnCloud);
+
+    return returnCloud;
+}
+
+pcl::PointCloud<PointT>::Ptr normalSampling(pcl::PointCloud<PointT>::Ptr cloud){
+    pcl::ScopeTime t("Normal Sampling");
+    pcl::PointCloud<PointT>::Ptr returnCloud(new pcl::PointCloud<PointT>);
+
+    pcl::SamplingSurfaceNormal<PointT> sampler;
+    sampler.setRatio(0.1);
+    //sampler.setSample(15);
+    sampler.setInputCloud(cloud);
+    sampler.filter (*returnCloud);
 
     return returnCloud;
 }
@@ -221,27 +228,7 @@ pcl::PointCloud<pcl::PointXYZRGB>::Ptr fillColors(pcl::PointCloud<pcl::PointXYZR
 }
 
 
-pcl::PointCloud<pcl::PointXYZRGB>::Ptr filter(pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud){
 
-    pcl::ScopeTime t("Bilateral Filter");
-
-    pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud_out(new pcl::PointCloud<pcl::PointXYZRGB>);
-
-    pcl::FastBilateralFilterOMP<pcl::PointXYZRGB> bilateral_filter;
-    bilateral_filter.setInputCloud (cloud);
-    bilateral_filter.setSigmaS (5);
-    bilateral_filter.setSigmaR (0.01f);
-    bilateral_filter.filter (*cloud_out);
-
-//    pcl::MedianFilter<pcl::PointXYZRGB> median_filter;
-//    median_filter.setInputCloud (cloud);
-//    median_filter.setWindowSize (7);
-//    median_filter.setMaxAllowedMovement (0.02);
-//    median_filter.filter (*cloud_out);
-
-    return cloud_out;
-
-}
 
 
 CorrespondanceResults coarse_alignment(pcl::PointCloud<PointT>::ConstPtr src_cloud, pcl::PointCloud<pcl::FPFHSignature33>::Ptr src_features, pcl::PointCloud<PointT>::Ptr target_cloud, pcl::PointCloud<pcl::FPFHSignature33>::Ptr target_features){
@@ -278,8 +265,7 @@ CorrespondanceResults coarse_alignment(pcl::PointCloud<PointT>::ConstPtr src_clo
 //    rej_normals.setInputTarget<PointT>(target_cloud);
 //    rej_normals.setInputNormals<PointT,PointT>(src_cloud);
 //    rej_normals.setTargetNormals<PointT,PointT>(target_cloud);
-//    rej_normals.setThreshold(angles::from_degrees(30));
-
+//    rej_normals.setThreshold(pcl::deg2rad(45.));
 //    rej_median.getRemainingCorrespondences(correspondences_median, correspondences_normals);
 
 
@@ -308,15 +294,18 @@ pcl::PointCloud<PointT>::Ptr computeISSKeypoints(pcl::PointCloud<PointT>::Ptr cl
 {
     pcl::ScopeTime t("ISS Keypoints");
 
+    pcl::PointCloud<PointT>::Ptr cloud_downsampled = downsample(cloud, 0.015);
+
+
     pcl::PointCloud<PointT>::Ptr keypoints(new pcl::PointCloud<PointT>);
 
     pcl::ISSKeypoint3D<PointT, PointT, PointT> detector;
-    detector.setInputCloud(cloud);
+    detector.setInputCloud(cloud_downsampled);
     pcl::search::KdTree<PointT>::Ptr kdtree(new pcl::search::KdTree<PointT>);
     detector.setSearchMethod(kdtree);
     double resolution = 0.01;
 
-    detector.setNormals(cloud);
+    detector.setNormals(cloud_downsampled);
 
     // Set the radius of the spherical neighborhood used to compute the scatter matrix.
     detector.setSalientRadius(6 * resolution);
@@ -341,64 +330,14 @@ pcl::PointCloud<PointT>::Ptr computeISSKeypoints(pcl::PointCloud<PointT>::Ptr cl
 
 }
 
-pcl::PointCloud<PointT>::Ptr computeNARFKeypoints(pcl::PointCloud<PointT>::Ptr cloud)
-{
-    pcl::ScopeTime t("NARF Keypoints");
-    pcl::PointCloud<PointT>::Ptr keypoints(new pcl::PointCloud<PointT>);
 
-    // Convert the cloud to range image.
-    int imageSizeX = 640, imageSizeY = 480;
-    float centerX = (640.0f / 2.0f), centerY = (480.0f / 2.0f);
-    float focalLengthX = 525.0f, focalLengthY = focalLengthX;
-    Eigen::Affine3f sensorPose = Eigen::Affine3f(Eigen::Translation3f(cloud->sensor_origin_[0],
-                                                                      cloud->sensor_origin_[1],
-                                                                      cloud->sensor_origin_[2])) *
-            Eigen::Affine3f(cloud->sensor_orientation_);
-    float noiseLevel = 0.0f, minimumRange = 0.0f;
-    pcl::RangeImagePlanar rangeImage;
-    rangeImage.createFromPointCloudWithFixedSize(*cloud, imageSizeX, imageSizeY,
-                                                 centerX, centerY, focalLengthX, focalLengthY,
-                                                 sensorPose, pcl::RangeImage::CAMERA_FRAME,
-                                                 noiseLevel, minimumRange);
-
-
-    // --------------------------------
-    // -----Extract NARF keypoints-----
-    // --------------------------------
-    float support_size = 0.1f;
-    pcl::RangeImageBorderExtractor range_image_border_extractor;
-    pcl::NarfKeypoint narf_keypoint_detector;
-    narf_keypoint_detector.setRangeImageBorderExtractor (&range_image_border_extractor);
-    narf_keypoint_detector.setRangeImage (&rangeImage);
-    narf_keypoint_detector.getParameters().support_size = support_size;
-
-    pcl::PointCloud<int> keypoint_indices;
-    narf_keypoint_detector.compute (keypoint_indices);
-    std::cout << "Found "<<keypoint_indices.points.size ()<<" key points.\n";
-
-    keypoints->points.resize(keypoint_indices.points.size());
-    for (size_t i=0; i < keypoint_indices.points.size(); ++i){
-        keypoints->points[i].getVector3fMap() = rangeImage.points[keypoint_indices.points[i]].getVector3fMap();
-        keypoints->points[i].r = 0;
-        keypoints->points[i].g = 255;
-        keypoints->points[i].b = 0;
-    }
-
-//    pcl::visualization::RangeImageVisualizer range_image_widget ("Range image");
-//    range_image_widget.setSize(600,600);
-//    range_image_widget.showRangeImage (rangeImage);
-//    range_image_widget.spin();
-
-    return keypoints;
-
-}
 
 Eigen::Matrix4f align_icp(pcl::PointCloud<PointT>::Ptr src_cloud, pcl::PointCloud<PointT>::Ptr target_cloud, Eigen::Matrix4f initial_transform){
 
     pcl::ScopeTime t("ICP");
 
-    typedef pcl::registration::TransformationEstimationPointToPlane<PointT, PointT> PointToPlane;
-    boost::shared_ptr<PointToPlane> point_to_plane(new PointToPlane);
+//    typedef pcl::registration::TransformationEstimationPointToPlane<PointT, PointT> PointToPlane;
+//    boost::shared_ptr<PointToPlane> point_to_plane(new PointToPlane);
 
     // downsample the input pointclouds
     pcl::PointCloud<PointT>::Ptr src_downsampled = downsample(src_cloud, 0.02);
@@ -407,7 +346,7 @@ Eigen::Matrix4f align_icp(pcl::PointCloud<PointT>::Ptr src_cloud, pcl::PointClou
     pcl::IterativeClosestPoint<PointT, PointT> icp;
     icp.setInputSource(src_downsampled);
     icp.setInputTarget(target_downsampled);
-    icp.setMaxCorrespondenceDistance(0.02);
+    icp.setMaxCorrespondenceDistance(0.05);
     icp.setMaximumIterations(40);
     //icp.setTransformationEstimation(point_to_plane);
 
@@ -420,25 +359,24 @@ Eigen::Matrix4f align_icp(pcl::PointCloud<PointT>::Ptr src_cloud, pcl::PointClou
     return icp_transform;
 }
 
+
+
+
 int main (int argc, char** argv){
 
 
     pcl::PointCloud<PointT>::Ptr in1(new pcl::PointCloud<PointT>);
-    pcl::PointCloud<PointT>::Ptr in2(new pcl::PointCloud<PointT>);
     pcl::PointCloud<PointT>::Ptr container_model(new pcl::PointCloud<PointT>);
 
     pcl::PointCloud<pcl::PointXYZRGB>::Ptr in1_xyzrgb(new pcl::PointCloud<pcl::PointXYZRGB>);
-    pcl::PointCloud<pcl::PointXYZRGB>::Ptr in2_xyzrgb(new pcl::PointCloud<pcl::PointXYZRGB>);
     pcl::PointCloud<pcl::PointXYZRGB>::Ptr container_model_xyzrgb(new pcl::PointCloud<pcl::PointXYZRGB>);
 
 
-    pcl::io::loadPCDFile("../device1_1.pcd", *in1_xyzrgb);
-    pcl::io::loadPCDFile("../device2_1.pcd", *in2_xyzrgb);
+    pcl::io::loadPCDFile("../device2_1.pcd", *in1_xyzrgb);
     pcl::io::loadPCDFile("../container_model.pcd", *container_model_xyzrgb);
 
-   // in1_xyzrgb = filter(in1_xyzrgb);
-  //  in2_xyzrgb = filter(in2_xyzrgb);
-   // container_model_xyzrgb = filter(container_model_xyzrgb);
+//    in1_xyzrgb = filter(in1_xyzrgb);
+//    container_model_xyzrgb = filter(container_model_xyzrgb);
 
 
    // container_model_xyzrgb = fillColors(container_model_xyzrgb);
@@ -448,34 +386,33 @@ int main (int argc, char** argv){
 
     // Sampling
     in1_xyzrgb = downsample(in1_xyzrgb, 0.01);
-    in2_xyzrgb = downsample(in2_xyzrgb, 0.01);
     container_model_xyzrgb = downsample(container_model_xyzrgb, 0.005);
 
 
     // Compute normals
     in1 = computeSurfaceNormals(in1_xyzrgb);
-    in2 = computeSurfaceNormals(in2_xyzrgb);
     container_model = computeSurfaceNormals(container_model_xyzrgb);
+
 
     //computeNARFKeypoints(in1);
 
     // Keypoints
     pcl::PointCloud<PointT>::Ptr in1_keypoints = computeISSKeypoints(in1);
-    pcl::PointCloud<PointT>::Ptr in2_keypoints = computeISSKeypoints(in2);
     pcl::PointCloud<PointT>::Ptr container_model_keypoints = computeISSKeypoints(container_model);
+//    pcl::PointCloud<PointT>::Ptr in1_keypoints = downsample(in1, 0.02);
+//    pcl::PointCloud<PointT>::Ptr container_model_keypoints = downsample(container_model, 0.02);
+//    pcl::PointCloud<PointT>::Ptr in1_keypoints = normalSampling(in1);
+//    pcl::PointCloud<PointT>::Ptr container_model_keypoints = normalSampling(container_model);
 
     // Keypoints Normals
     in1_keypoints = computeSurfaceNormals_withKeypoints(in1_keypoints, in1);
-    in2_keypoints = computeSurfaceNormals_withKeypoints(in2_keypoints, in2);
     container_model_keypoints = computeSurfaceNormals_withKeypoints(container_model_keypoints, container_model);
 
     // Features
 //    pcl::PointCloud<pcl::FPFHSignature33>::Ptr in1_fpfh = computeFPFH(in1);
-//    pcl::PointCloud<pcl::FPFHSignature33>::Ptr in2_fpfh = computeFPFH(in2);
 //    pcl::PointCloud<pcl::FPFHSignature33>::Ptr container_model_fpfh = computeFPFH(container_model);
 
     pcl::PointCloud<pcl::FPFHSignature33>::Ptr in1_fpfh = computeFPFH_withKeypoints(in1_keypoints, in1);
-    pcl::PointCloud<pcl::FPFHSignature33>::Ptr in2_fpfh = computeFPFH_withKeypoints(in2_keypoints, in2);
     pcl::PointCloud<pcl::FPFHSignature33>::Ptr container_model_fpfh = computeFPFH_withKeypoints(container_model_keypoints, container_model);
 
     
@@ -510,7 +447,7 @@ int main (int argc, char** argv){
 
 
     pclViewer->addPointCloud (container_model_svd, ColorHandlerT(container_model_svd, 0.0, 0.0, 255.0), "svd");
-    pclViewer->setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 3, "svd");
+    pclViewer->setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 1, "svd");
 
     pclViewer->addPointCloud (in1_keypoints, ColorHandlerT(in1_keypoints, 255.0, 255.0, 0.0), "in_key");
     pclViewer->setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 5, "in_key");
@@ -518,17 +455,7 @@ int main (int argc, char** argv){
     pclViewer->addPointCloud (container_model_keypoints, ColorHandlerT(container_model_keypoints, 0.0, 0.0, 255.0), "key");
     pclViewer->setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 5, "key");
 
-    pclViewer->addCorrespondences<PointT>(container_model_keypoints, in1_keypoints, coarse_results.initial_correspondences, "corr1");
-
-
-
-    //Keypoints Visualization
-    pclViewer2->addPointCloud (container_model, ColorHandlerT(container_model, 255.0, 0.0, 0.0), "1");
-    pclViewer2->addPointCloud (container_model_keypoints, ColorHandlerT(container_model_keypoints, 0.0, 0.0, 255.0), "2");
-    pclViewer2->setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 5, "2");
-
-
-
+    pclViewer->addCorrespondences<PointT>(container_model_keypoints, in1_keypoints, coarse_results.correspondences, "corr1");
 
 
     while (!pclViewer->wasStopped()) {
