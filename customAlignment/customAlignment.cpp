@@ -485,11 +485,11 @@ int main (int argc, char** argv){
 
     // Threads for computing the alignment with different techniques
     boost::thread thread_ISS(ISS_thread, in1, container_model);
-   // boost::thread thread_Sampling(Sampling_thread, in1, container_model);
+    boost::thread thread_Sampling(Sampling_thread, in1, container_model);
 
     // Wait for threads to finish
     thread_ISS.join();
-   // thread_Sampling.join();
+    thread_Sampling.join();
 
     // Check the best alignment and show it in PCL Viewer
     int bestTFIndex = getBestTransformIndex(&_AlignmentResults);
