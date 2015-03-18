@@ -1,0 +1,21 @@
+pcl::PointCloud<pcl::PointXYZRGB>::Ptr filter(pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud){
+
+    pcl::ScopeTime t("Bilateral Filter");
+
+    pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud_out(new pcl::PointCloud<pcl::PointXYZRGB>);
+
+    pcl::FastBilateralFilterOMP<pcl::PointXYZRGB> bilateral_filter;
+    bilateral_filter.setInputCloud (cloud);
+    bilateral_filter.setSigmaS (5);
+    bilateral_filter.setSigmaR (0.005f);
+    bilateral_filter.filter (*cloud_out);
+
+//        pcl::MedianFilter<pcl::PointXYZRGB> median_filter;
+    //    median_filter.setInputCloud (cloud);
+    //    median_filter.setWindowSize (7);
+    //    median_filter.setMaxAllowedMovement (0.02);
+    //    median_filter.filter (*cloud_out);
+
+    return cloud_out;
+
+}

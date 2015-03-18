@@ -1,0 +1,33 @@
+pcl::PointCloud<PointT>::Ptr smoothPointCloud(pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud){
+
+    pcl::ScopeTime t("Moving Least Squares");
+
+//    pcl::PointCloud<PointT>::Ptr smooth_cloud(new pcl::PointCloud<PointT>);
+//    pcl::MovingLeastSquares<PointT, PointT>::Ptr mls(new pcl::MovingLeastSquares<PointT, PointT>);
+//    pcl::search::KdTree<PointT>::Ptr tree (new pcl::search::KdTree<PointT>);
+
+//    mls->setComputeNormals (false);
+
+//    // Set parameters
+//    mls->setInputCloud (cloud);
+//    mls->setPolynomialOrder(2);
+//    mls->setPolynomialFit (true);
+//    mls->setSearchMethod (tree);
+//    mls->setSearchRadius (0.03);
+
+//    // Reconstruct
+//    mls->process (*smooth_cloud);
+
+
+    pcl::MovingLeastSquares<pcl::PointXYZRGB, PointT> mls;
+    pcl::PointCloud<PointT>::Ptr cloud_smoothed(new pcl::PointCloud<PointT>);
+    mls.setInputCloud (cloud);
+    mls.setSearchRadius (0.04);
+    mls.setPolynomialFit (true);
+    mls.setPolynomialOrder (2);
+    mls.process (*cloud_smoothed);
+
+
+
+    return cloud_smoothed;
+}

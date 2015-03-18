@@ -1,0 +1,58 @@
+#include <pcl/range_image/range_image.h>
+#include <pcl/range_image/range_image_planar.h>
+#include <pcl/visualization/range_image_visualizer.h>
+#include <pcl/features/range_image_border_extractor.h>
+#include <pcl/keypoints/narf_keypoint.h>
+#include <pcl/features/narf_descriptor.h>
+
+pcl::PointCloud<PointT>::Ptr computeNARFKeypoints(pcl::PointCloud<PointT>::Ptr cloud)
+{
+    pcl::ScopeTime t("NARF Keypoints");
+    pcl::PointCloud<PointT>::Ptr keypoints(new pcl::PointCloud<PointT>);
+
+    // Convert the cloud to range image.
+    int imageSizeX = 640, imageSizeY = 480;
+    float centerX = (640.0f / 2.0f), centerY = (480.0f / 2.0f);
+    float focalLengthX = 525.0f, focalLengthY = focalLengthX;
+    Eigen::Affine3f sensorPose = Eigen::Affine3f(Eigen::Translation3f(cloud->sensor_origin_[0],
+                                                                      cloud->sensor_origin_[1],
+                                                                      cloud->sensor_origin_[2])) *
+            Eigen::Affine3f(cloud->sensor_orientation_);
+    float noiseLevel = 0.0f, minimumRange = 0.0f;
+    pcl::RangeImagePlanar rangeImage;
+    rangeImage.createFromPointCloudWithFixedSize(*cloud, imageSizeX, imageSizeY,
+                                                 centerX, centerY, focalLengthX, focalLengthY,
+                                                 sensorPose, pcl::RangeImage::CAMERA_FRAME,
+                                                 noiseLevel, minimumRange);
+
+
+    // --------------------------------
+    // -----Extract NARF keypoints-----
+    // --------------------------------
+    float support_size = 0.1f;
+    pcl::RangeImageBorderExtractor range_image_border_extractor;
+    pcl::NarfKeypoint narf_keypoint_detector;
+    narf_keypoint_detector.setRangeImageBorderExtractor (&range_image_border_extractor);
+    narf_keypoint_detector.setRangeImage (&rangeImage);
+    narf_keypoint_detector.getParameters().support_size = support_size;
+
+    pcl::PointCloud<int> keypoint_indices;
+    narf_keypoint_detector.compute (keypoint_indices);
+    std::cout << "Found "<<keypoint_indices.points.size ()<<" key points.\n";
+
+    keypoints->points.resize(keypoint_indices.points.size());
+    for (size_t i=0; i < keypoint_indices.points.size(); ++i){
+        keypoints->points[i].getVector3fMap() = rangeImage.points[keypoint_indices.points[i]].getVector3fMap();
+        keypoints->points[i].r = 0;
+        keypoints->points[i].g = 255;
+        keypoints->points[i].b = 0;
+    }
+
+//    pcl::visualization::RangeImageVisualizer range_image_widget ("Range image");
+//    range_image_widget.setSize(600,600);
+//    range_image_widget.showRangeImage (rangeImage);
+//    range_image_widget.spin();
+
+    return keypoints;
+
+}
