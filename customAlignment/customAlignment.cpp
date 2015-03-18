@@ -37,7 +37,6 @@
 
 #include <boost/thread.hpp>
 
-
 /*
   This file aligns point clouds with each other by rejecting correspondences with RANSAC
   and then fine tuning the alignement with ICP.
@@ -52,12 +51,24 @@ boost::shared_ptr<pcl::visualization::PCLVisualizer> pclViewer (new pcl::visuali
 //boost::shared_ptr<pcl::visualization::PCLVisualizer> pclViewer2 (new pcl::visualization::PCLVisualizer ("3D Viewer"));
 
 
-struct CorrespondanceResults {
-  Eigen::Matrix4f transformation;
+struct CorrespondenceResults {
+  EIGEN_MAKE_ALIGNED_OPERATOR_NEW
+  Eigen::Matrix4f coarse_transformation;
+  Eigen::Matrix4f fine_transformation;
+  double fine_transformation_score;
   pcl::Correspondences correspondences;
   pcl::Correspondences initial_correspondences;
+  pcl::PointCloud<PointT>::Ptr scene_cloud;
+  pcl::PointCloud<PointT>::Ptr model_cloud;
+  pcl::PointCloud<PointT>::Ptr scene_keypoints;
+  pcl::PointCloud<PointT>::Ptr model_keypoints;
+  pcl::PointCloud<pcl::FPFHSignature33>::Ptr scene_features;
+  pcl::PointCloud<pcl::FPFHSignature33>::Ptr model_features;
+  pcl::PointCloud<PointT>::Ptr model_coarse_aligned;
+  pcl::PointCloud<PointT>::Ptr model_fine_aligned;
 } ;
 
+std::vector<CorrespondenceResults*> _AlignmentResults;
 
 void initPCLViewer(){
     //PCL Viewer
@@ -75,6 +86,32 @@ void initPCLViewer(){
 //    vtkSmartPointer<vtkRenderWindow> renderWindow2 = pclViewer2->getRenderWindow();
 //    renderWindow2->SetSize(800,450);
 //    renderWindow2->Render();
+
+}
+
+void showTransform(std::vector<CorrespondenceResults*> *results, int index){
+
+    CorrespondenceResults *corr = results->at(index);
+
+    pclViewer->addPointCloud (corr->scene_cloud, ColorHandlerT(corr->scene_cloud, 255.0, 0.0, 0.0), "scene");
+    pclViewer->setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 1, "scene");
+
+    pclViewer->addPointCloud (corr->model_cloud, ColorHandlerT(corr->model_cloud, 0.0, 255.0, 0.0), "model");
+    pclViewer->setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 1, "model");
+
+    pclViewer->addPointCloud (corr->model_coarse_aligned, ColorHandlerT(corr->model_coarse_aligned, 0.0, 255.0, 0.0), "ransac");
+    pclViewer->setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 1, "ransac");
+
+    pclViewer->addPointCloud (corr->model_fine_aligned, ColorHandlerT(corr->model_fine_aligned, 0.0, 0.0, 255.0), "icp");
+    pclViewer->setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 2, "icp");
+
+//    pclViewer->addPointCloud (corr->scene_keypoints, ColorHandlerT(corr->scene_keypoints, 255.0, 255.0, 0.0), "scene_key");
+//    pclViewer->setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 5, "scene_key");
+
+    pclViewer->addPointCloud (corr->model_keypoints, ColorHandlerT(corr->model_keypoints, 0.0, 0.0, 255.0), "model_key");
+    pclViewer->setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 5, "model_key");
+
+    pclViewer->addCorrespondences<PointT>(corr->model_keypoints, corr->scene_keypoints, corr->correspondences, "corr1");
 
 }
 
@@ -231,11 +268,9 @@ pcl::PointCloud<pcl::PointXYZRGB>::Ptr fillColors(pcl::PointCloud<pcl::PointXYZR
 
 
 
-CorrespondanceResults coarse_alignment(pcl::PointCloud<PointT>::ConstPtr src_cloud, pcl::PointCloud<pcl::FPFHSignature33>::Ptr src_features, pcl::PointCloud<PointT>::Ptr target_cloud, pcl::PointCloud<pcl::FPFHSignature33>::Ptr target_features){
+void coarse_alignment(CorrespondenceResults *data){
 
     pcl::ScopeTime t("Ransac coarse alignment");
-
-    CorrespondanceResults results;
 
     // NOTE
     // Direct correspondence estimation (default) searches for correspondences in cloud B for every point in cloud A .
@@ -244,19 +279,20 @@ CorrespondanceResults coarse_alignment(pcl::PointCloud<PointT>::ConstPtr src_clo
     // Correspondences Calculation (brute force)
     pcl::registration::CorrespondenceEstimation<pcl::FPFHSignature33, pcl::FPFHSignature33> corr_estimator;
     pcl::Correspondences correspondences;
-    corr_estimator.setInputSource(src_features);
-    corr_estimator.setInputTarget(target_features);
+    corr_estimator.setInputSource(data->model_features);
+    corr_estimator.setInputTarget(data->scene_features);
     corr_estimator.determineCorrespondences(correspondences);
-    results.initial_correspondences = correspondences;
+    data->initial_correspondences = correspondences;
+    std::cout << "Initial Correspondences = " << data->initial_correspondences.size()  << std::endl;
 
 
     pcl::registration::CorrespondenceRejectorMedianDistance rej_median;
     pcl::Correspondences correspondences_median;
-    rej_median.setInputSource<PointT>(src_cloud);
-    rej_median.setInputTarget<PointT>(target_cloud);
+    rej_median.setInputSource<PointT>(data->model_keypoints);
+    rej_median.setInputTarget<PointT>(data->scene_keypoints);
     rej_median.setMedianFactor(2);
     rej_median.getRemainingCorrespondences(correspondences, correspondences_median);
-
+    std::cout << "Median Correspondences = " << correspondences_median.size()  << std::endl;
 
 //    pcl::registration::CorrespondenceRejectorSurfaceNormal rej_normals;
 //    pcl::Correspondences correspondences_normals;
@@ -276,17 +312,19 @@ CorrespondanceResults coarse_alignment(pcl::PointCloud<PointT>::ConstPtr src_clo
     // After n iterations, keep the best transform
     // Reject the feature pairs for which the point to point distance is bigger than threshold in the aligned clouds
     pcl::registration::CorrespondenceRejectorSampleConsensus<PointT> corr_rejector;
-    corr_rejector.setInputSource(src_cloud);
+    corr_rejector.setInputSource(data->model_keypoints);
     //corr_rejector.setInputCorrespondences(correspondences);
-    corr_rejector.setInputTarget(target_cloud);
+    corr_rejector.setInputTarget(data->scene_keypoints);
     corr_rejector.setMaximumIterations(150);
     corr_rejector.setInlierThreshold(0.05);
-    corr_rejector.getRemainingCorrespondences(correspondences_median, results.correspondences);
+    corr_rejector.getRemainingCorrespondences(correspondences_median, data->correspondences);
 
-    results.transformation  = corr_rejector.getBestTransformation();
+    data->coarse_transformation  = corr_rejector.getBestTransformation();
 
-    return results;
-
+    // Transform point cloud
+    pcl::PointCloud<PointT>::Ptr container_model_ransac(new pcl::PointCloud<PointT>);
+    pcl::transformPointCloud(*data->model_cloud, *container_model_ransac, data->coarse_transformation);
+    data->model_coarse_aligned = container_model_ransac;
 }
 
 
@@ -332,7 +370,7 @@ pcl::PointCloud<PointT>::Ptr computeISSKeypoints(pcl::PointCloud<PointT>::Ptr cl
 
 
 
-Eigen::Matrix4f align_icp(pcl::PointCloud<PointT>::Ptr src_cloud, pcl::PointCloud<PointT>::Ptr target_cloud, Eigen::Matrix4f initial_transform){
+void align_icp(CorrespondenceResults *data){
 
     pcl::ScopeTime t("ICP");
 
@@ -340,8 +378,8 @@ Eigen::Matrix4f align_icp(pcl::PointCloud<PointT>::Ptr src_cloud, pcl::PointClou
 //    boost::shared_ptr<PointToPlane> point_to_plane(new PointToPlane);
 
     // downsample the input pointclouds
-    pcl::PointCloud<PointT>::Ptr src_downsampled = downsample(src_cloud, 0.02);
-    pcl::PointCloud<PointT>::Ptr target_downsampled = downsample(target_cloud, 0.02);
+    pcl::PointCloud<PointT>::Ptr src_downsampled = downsample(data->model_cloud, 0.02);
+    pcl::PointCloud<PointT>::Ptr target_downsampled = downsample(data->scene_cloud, 0.02);
 
     pcl::IterativeClosestPoint<PointT, PointT> icp;
     icp.setInputSource(src_downsampled);
@@ -351,16 +389,75 @@ Eigen::Matrix4f align_icp(pcl::PointCloud<PointT>::Ptr src_cloud, pcl::PointClou
     //icp.setTransformationEstimation(point_to_plane);
 
     pcl::PointCloud<PointT>::Ptr Final(new pcl::PointCloud<PointT>());
-    icp.align(*Final,initial_transform);
-    Eigen::Matrix4f icp_transform = icp.getFinalTransformation();
-    double fitness_score = icp.getFitnessScore();
-    cout << "ICP Transformation Score = " << fitness_score << endl;
+    icp.align(*Final,data->coarse_transformation);
+    data->fine_transformation = icp.getFinalTransformation();
+    data->fine_transformation_score = icp.getFitnessScore();
+    cout << "ICP Transformation Score = " << data->fine_transformation_score << endl;
 
-    return icp_transform;
+    data->model_fine_aligned = Final;
+
 }
 
+void ISS_thread(pcl::PointCloud<PointT>::Ptr in1, pcl::PointCloud<PointT>::Ptr container_model){
 
+    pcl::ScopeTime t("Transformation with ISS Keypoints");
 
+    CorrespondenceResults* iss(new CorrespondenceResults);
+    iss->scene_cloud = in1;
+    iss->model_cloud = container_model;
+
+    iss->scene_keypoints = computeISSKeypoints(iss->scene_cloud);
+    iss->model_keypoints = computeISSKeypoints(iss->model_cloud);
+
+    iss->scene_keypoints = computeSurfaceNormals_withKeypoints(iss->scene_keypoints, iss->scene_cloud);
+    iss->model_keypoints = computeSurfaceNormals_withKeypoints(iss->model_keypoints, iss->model_cloud);
+
+    iss->scene_features = computeFPFH_withKeypoints(iss->scene_keypoints, iss->scene_cloud);
+    iss->model_features = computeFPFH_withKeypoints(iss->model_keypoints, iss->model_cloud);
+
+    coarse_alignment(iss);
+    align_icp(iss);
+
+    _AlignmentResults.push_back(iss);
+}
+
+void Sampling_thread(pcl::PointCloud<PointT>::Ptr scene_cloud, pcl::PointCloud<PointT>::Ptr model_cloud){
+
+    pcl::ScopeTime t("Transformation with ISS Keypoints");
+
+    CorrespondenceResults* sampling(new CorrespondenceResults);
+    sampling->scene_cloud = scene_cloud;
+    sampling->model_cloud = model_cloud;
+
+    sampling->scene_keypoints = downsample(sampling->scene_cloud, 0.02);
+    sampling->model_keypoints = downsample(sampling->model_cloud, 0.02);
+
+    sampling->scene_keypoints = computeSurfaceNormals_withKeypoints(sampling->scene_keypoints, sampling->scene_cloud);
+    sampling->model_keypoints = computeSurfaceNormals_withKeypoints(sampling->model_keypoints, sampling->model_cloud);
+
+    sampling->scene_features = computeFPFH_withKeypoints(sampling->scene_keypoints, sampling->scene_cloud);
+    sampling->model_features = computeFPFH_withKeypoints(sampling->model_keypoints, sampling->model_cloud);
+
+    coarse_alignment(sampling);
+    align_icp(sampling);
+
+    _AlignmentResults.push_back(sampling);
+}
+
+int getBestTransformIndex(std::vector<CorrespondenceResults*> *transforms){
+
+    double smallestScore = 999999;
+    int smallestScore_index = -1;
+    for(int i=0; i < transforms->size(); i++){
+        double icp_score = transforms->at(i)->fine_transformation_score;
+        if(icp_score < smallestScore){
+            smallestScore = icp_score;
+            smallestScore_index = i;
+        }
+    }
+
+    return smallestScore_index;
+}
 
 int main (int argc, char** argv){
 
@@ -371,15 +468,8 @@ int main (int argc, char** argv){
     pcl::PointCloud<pcl::PointXYZRGB>::Ptr in1_xyzrgb(new pcl::PointCloud<pcl::PointXYZRGB>);
     pcl::PointCloud<pcl::PointXYZRGB>::Ptr container_model_xyzrgb(new pcl::PointCloud<pcl::PointXYZRGB>);
 
-
-    pcl::io::loadPCDFile("../device2_1.pcd", *in1_xyzrgb);
+    pcl::io::loadPCDFile("../device1_1.pcd", *in1_xyzrgb);
     pcl::io::loadPCDFile("../container_model.pcd", *container_model_xyzrgb);
-
-//    in1_xyzrgb = filter(in1_xyzrgb);
-//    container_model_xyzrgb = filter(container_model_xyzrgb);
-
-
-   // container_model_xyzrgb = fillColors(container_model_xyzrgb);
 
     initPCLViewer();
 
@@ -393,69 +483,47 @@ int main (int argc, char** argv){
     in1 = computeSurfaceNormals(in1_xyzrgb);
     container_model = computeSurfaceNormals(container_model_xyzrgb);
 
+    // Threads for computing the alignment with different techniques
+    boost::thread thread_ISS(ISS_thread, in1, container_model);
+   // boost::thread thread_Sampling(Sampling_thread, in1, container_model);
 
-    //computeNARFKeypoints(in1);
+    // Wait for threads to finish
+    thread_ISS.join();
+   // thread_Sampling.join();
 
-    // Keypoints
-    pcl::PointCloud<PointT>::Ptr in1_keypoints = computeISSKeypoints(in1);
-    pcl::PointCloud<PointT>::Ptr container_model_keypoints = computeISSKeypoints(container_model);
-//    pcl::PointCloud<PointT>::Ptr in1_keypoints = downsample(in1, 0.02);
-//    pcl::PointCloud<PointT>::Ptr container_model_keypoints = downsample(container_model, 0.02);
-//    pcl::PointCloud<PointT>::Ptr in1_keypoints = normalSampling(in1);
-//    pcl::PointCloud<PointT>::Ptr container_model_keypoints = normalSampling(container_model);
+    // Check the best alignment and show it in PCL Viewer
+    int bestTFIndex = getBestTransformIndex(&_AlignmentResults);
+    //std::cout << "alignment score = " << _AlignmentResults.at(0)->fine_transformation_score << std::endl;
+    showTransform(&_AlignmentResults, bestTFIndex);
 
-    // Keypoints Normals
-    in1_keypoints = computeSurfaceNormals_withKeypoints(in1_keypoints, in1);
-    container_model_keypoints = computeSurfaceNormals_withKeypoints(container_model_keypoints, container_model);
+//    // Transform point clouds and show them
+//    pcl::PointCloud<PointT>::Ptr container_model_ransac(new pcl::PointCloud<PointT>);
+//    pcl::transformPointCloud(*container_model, *container_model_ransac, _AlignmentResults[bestTFIndex].coarse_transformation);
 
-    // Features
-//    pcl::PointCloud<pcl::FPFHSignature33>::Ptr in1_fpfh = computeFPFH(in1);
-//    pcl::PointCloud<pcl::FPFHSignature33>::Ptr container_model_fpfh = computeFPFH(container_model);
-
-    pcl::PointCloud<pcl::FPFHSignature33>::Ptr in1_fpfh = computeFPFH_withKeypoints(in1_keypoints, in1);
-    pcl::PointCloud<pcl::FPFHSignature33>::Ptr container_model_fpfh = computeFPFH_withKeypoints(container_model_keypoints, container_model);
+//    pcl::PointCloud<PointT>::Ptr container_model_svd(new pcl::PointCloud<PointT>);
+//    pcl::transformPointCloud(*container_model, *container_model_svd, _AlignmentResults[bestTFIndex].fine_transformation);
 
     
-    // Coarse Alignment with RANSAC
-//    CorrespondanceResults coarse_results = coarse_alignment(container_model, container_model_fpfh, in1, in1_fpfh);
-     CorrespondanceResults coarse_results = coarse_alignment(container_model_keypoints, container_model_fpfh, in1_keypoints, in1_fpfh);
+//    pclViewer->addPointCloud (in1, ColorHandlerT(in1, 255.0, 0.0, 0.0), "2");
+//    pclViewer->setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 1, "2");
 
-    
-    // Singular Value Decomposition (SVD) with Least Squares Error (fine alignment with only good features)
-   // pcl::registration::TransformationEstimationSVD<PointT, PointT> svd;
-    Eigen::Matrix4f svd_transformation;
-//    svd.estimateRigidTransformation(*container_model_keypoints, *in1_keypoints, coarse_results.correspondences, svd_transformation);
-    svd_transformation = align_icp(container_model, in1, coarse_results.transformation);
+//    pclViewer->addPointCloud (container_model, ColorHandlerT(container_model, 0.0, 255.0, 0.0), "model");
+//    pclViewer->setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 1, "model");
+
+//    pclViewer->addPointCloud (container_model_ransac, ColorHandlerT(container_model_ransac, 0.0, 255.0, 0.0), "ransac");
+//    pclViewer->setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 1, "ransac");
 
 
-    // Transform point clouds and show them
-    pcl::PointCloud<PointT>::Ptr container_model_ransac(new pcl::PointCloud<PointT>);
-    pcl::transformPointCloud(*container_model, *container_model_ransac, coarse_results.transformation);
+//    pclViewer->addPointCloud (container_model_svd, ColorHandlerT(container_model_svd, 0.0, 0.0, 255.0), "svd");
+//    pclViewer->setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 1, "svd");
 
-    pcl::PointCloud<PointT>::Ptr container_model_svd(new pcl::PointCloud<PointT>);
-    pcl::transformPointCloud(*container_model, *container_model_svd, svd_transformation);
+//    pclViewer->addPointCloud (_AlignmentResults[bestTFIndex].scene_keypoints, ColorHandlerT(_AlignmentResults[bestTFIndex].scene_keypoints, 255.0, 255.0, 0.0), "in_key");
+//    pclViewer->setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 5, "in_key");
 
-    
-    pclViewer->addPointCloud (in1, ColorHandlerT(in1, 255.0, 0.0, 0.0), "2");
-    pclViewer->setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 1, "2");
+//    pclViewer->addPointCloud (_AlignmentResults[bestTFIndex].model_keypoints, ColorHandlerT(_AlignmentResults[bestTFIndex].model_keypoints, 0.0, 0.0, 255.0), "key");
+//    pclViewer->setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 5, "key");
 
-    pclViewer->addPointCloud (container_model, ColorHandlerT(container_model, 0.0, 255.0, 0.0), "model");
-    pclViewer->setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 1, "model");
-
-    pclViewer->addPointCloud (container_model_ransac, ColorHandlerT(container_model_ransac, 0.0, 255.0, 0.0), "ransac");
-    pclViewer->setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 1, "ransac");
-
-
-    pclViewer->addPointCloud (container_model_svd, ColorHandlerT(container_model_svd, 0.0, 0.0, 255.0), "svd");
-    pclViewer->setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 1, "svd");
-
-    pclViewer->addPointCloud (in1_keypoints, ColorHandlerT(in1_keypoints, 255.0, 255.0, 0.0), "in_key");
-    pclViewer->setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 5, "in_key");
-
-    pclViewer->addPointCloud (container_model_keypoints, ColorHandlerT(container_model_keypoints, 0.0, 0.0, 255.0), "key");
-    pclViewer->setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 5, "key");
-
-    pclViewer->addCorrespondences<PointT>(container_model_keypoints, in1_keypoints, coarse_results.correspondences, "corr1");
+//    pclViewer->addCorrespondences<PointT>(_AlignmentResults[bestTFIndex].model_keypoints, _AlignmentResults[bestTFIndex].scene_keypoints, _AlignmentResults[bestTFIndex].correspondences, "corr1");
 
 
     while (!pclViewer->wasStopped()) {
