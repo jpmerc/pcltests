@@ -401,11 +401,12 @@ Eigen::Matrix4f align_icp(pcl::PointCloud<PointT>::Ptr src_cloud, pcl::PointClou
     boost::shared_ptr<PointToPlane> point_to_plane(new PointToPlane);
 
     // downsample the input pointclouds
-
+    pcl::PointCloud<PointT>::Ptr src_downsampled = downsample(src_cloud, 0.02);
+    pcl::PointCloud<PointT>::Ptr target_downsampled = downsample(target_cloud, 0.02);
 
     pcl::IterativeClosestPoint<PointT, PointT> icp;
-    icp.setInputSource(src_cloud);
-    icp.setInputTarget(target_cloud);
+    icp.setInputSource(src_downsampled);
+    icp.setInputTarget(target_downsampled);
     icp.setMaxCorrespondenceDistance(0.02);
     icp.setMaximumIterations(40);
     //icp.setTransformationEstimation(point_to_plane);
