@@ -11,7 +11,7 @@ add_definitions(${PCL_DEFINITIONS})
 add_executable (customAlignment customAlignment.cpp)
 target_link_libraries (customAlignment ${PCL_LIBRARIES})
 
-add_executable (customAlignment_backup customAlignment_backup.cpp)
-target_link_libraries (customAlignment_backup ${PCL_LIBRARIES})
+add_executable (customSegmentation customSegmentation.cpp)
+target_link_libraries (customSegmentation ${PCL_LIBRARIES})
 
 

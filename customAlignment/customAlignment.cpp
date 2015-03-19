@@ -115,6 +115,17 @@ void showTransform(std::vector<CorrespondenceResults*> *results, int index){
 
 }
 
+
+void saveClouds(std::vector<CorrespondenceResults*> *results, int index){
+
+    CorrespondenceResults *corr = results->at(index);
+
+    pcl::io::savePCDFileASCII<PointT>(std::string("../customAlignment_scene.pcd"),  *corr->scene_cloud);
+    pcl::io::savePCDFileASCII<PointT>(std::string("../customAlignment_coarse.pcd"), *corr->model_coarse_aligned);
+    pcl::io::savePCDFileASCII<PointT>(std::string("../customAlignment_fine.pcd"),   *corr->model_fine_aligned);
+
+}
+
 pcl::PointCloud<PointT>::Ptr computeSurfaceNormals(pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud)
 {
     pcl::ScopeTime t("Normals");
@@ -394,7 +405,10 @@ void align_icp(CorrespondenceResults *data){
     data->fine_transformation_score = icp.getFitnessScore();
     cout << "ICP Transformation Score = " << data->fine_transformation_score << endl;
 
-    data->model_fine_aligned = Final;
+    // Transform
+    pcl::PointCloud<PointT>::Ptr container_model_icp(new pcl::PointCloud<PointT>);
+    pcl::transformPointCloud(*data->model_cloud, *container_model_icp, data->fine_transformation);
+    data->model_fine_aligned = container_model_icp;
 
 }
 
@@ -496,35 +510,7 @@ int main (int argc, char** argv){
     //std::cout << "alignment score = " << _AlignmentResults.at(0)->fine_transformation_score << std::endl;
     showTransform(&_AlignmentResults, bestTFIndex);
 
-//    // Transform point clouds and show them
-//    pcl::PointCloud<PointT>::Ptr container_model_ransac(new pcl::PointCloud<PointT>);
-//    pcl::transformPointCloud(*container_model, *container_model_ransac, _AlignmentResults[bestTFIndex].coarse_transformation);
-
-//    pcl::PointCloud<PointT>::Ptr container_model_svd(new pcl::PointCloud<PointT>);
-//    pcl::transformPointCloud(*container_model, *container_model_svd, _AlignmentResults[bestTFIndex].fine_transformation);
-
-    
-//    pclViewer->addPointCloud (in1, ColorHandlerT(in1, 255.0, 0.0, 0.0), "2");
-//    pclViewer->setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 1, "2");
-
-//    pclViewer->addPointCloud (container_model, ColorHandlerT(container_model, 0.0, 255.0, 0.0), "model");
-//    pclViewer->setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 1, "model");
-
-//    pclViewer->addPointCloud (container_model_ransac, ColorHandlerT(container_model_ransac, 0.0, 255.0, 0.0), "ransac");
-//    pclViewer->setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 1, "ransac");
-
-
-//    pclViewer->addPointCloud (container_model_svd, ColorHandlerT(container_model_svd, 0.0, 0.0, 255.0), "svd");
-//    pclViewer->setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 1, "svd");
-
-//    pclViewer->addPointCloud (_AlignmentResults[bestTFIndex].scene_keypoints, ColorHandlerT(_AlignmentResults[bestTFIndex].scene_keypoints, 255.0, 255.0, 0.0), "in_key");
-//    pclViewer->setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 5, "in_key");
-
-//    pclViewer->addPointCloud (_AlignmentResults[bestTFIndex].model_keypoints, ColorHandlerT(_AlignmentResults[bestTFIndex].model_keypoints, 0.0, 0.0, 255.0), "key");
-//    pclViewer->setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 5, "key");
-
-//    pclViewer->addCorrespondences<PointT>(_AlignmentResults[bestTFIndex].model_keypoints, _AlignmentResults[bestTFIndex].scene_keypoints, _AlignmentResults[bestTFIndex].correspondences, "corr1");
-
+    saveClouds(&_AlignmentResults, bestTFIndex);
 
     while (!pclViewer->wasStopped()) {
         pclViewer->spinOnce (100);
