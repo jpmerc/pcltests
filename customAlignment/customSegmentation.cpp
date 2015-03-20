@@ -33,6 +33,12 @@
 
 #include <pcl/features/normal_3d.h>
 
+#include <pcl/segmentation/crf_normal_segmentation.h>
+#include <pcl/segmentation/supervoxel_clustering.h>
+
+#include <boost/thread.hpp>
+
+#include <vtkPolyLine.h>
 
 /*
   This file aligns point clouds with each other by rejecting correspondences with RANSAC
@@ -47,9 +53,17 @@ typedef pcl::visualization::PointCloudColorHandlerRGBField<pcl::PointXYZRGB> Col
 
 using namespace std;
 
-boost::shared_ptr<pcl::visualization::PCLVisualizer> pclViewer (new pcl::visualization::PCLVisualizer ("3D Viewer"));
 boost::shared_ptr<pcl::visualization::PCLVisualizer> pclViewer2 (new pcl::visualization::PCLVisualizer ("3D Viewer2"));
+boost::shared_ptr<pcl::visualization::PCLVisualizer> pclViewer (new pcl::visualization::PCLVisualizer ("3D Viewer"));
 
+
+
+double _distanceThreshold = 3.0;
+double _pointColorThreshold = 3.0;
+double _regionColorThreshold = 3.0;
+double _minClusterSize = 1000;
+
+void region_growing_rgb(pcl::PointCloud<PointT>::Ptr cloud);
 
 void initPCLViewer(){
     //PCL Viewer
@@ -106,6 +120,62 @@ pcl::PointCloud<PointT>::Ptr cropAndSegmentScene(pcl::PointCloud<PointT>::Ptr sc
     return objects;
 }
 
+void region_growing_rgb_thread(pcl::PointCloud<PointT>::Ptr cloud){
+
+    region_growing_rgb(cloud);
+
+    bool continueLoop = true;
+
+    while(continueLoop){
+
+        std::cout << continueLoop  << std::endl;
+
+        std::cout << "Choose one of the parameters to modify and press enter : "     << std::endl;
+        std::cout << "1) Distance Threshold (default = 3.0)"                         << std::endl;
+        std::cout << "2) Point Color Threshold (defaul t = 3.0)"                     << std::endl;
+        std::cout << "3) Region Color Threshold (default = 3.0) "                    << std::endl;
+        std::cout << "4) Minimum Cluster Size (default = 1000) "                     << std::endl;
+        std::cout << "5) Quit"                                                       << std::endl;
+
+        string selection = "";
+        std::cin >> selection;
+
+        if(selection == "5") {
+            break;
+        }
+
+        std::cout << "Enter the desired value : " << std::endl;
+        double parameter_value = 0.0;
+        std::string parameter_value_str = "";
+        std::cin >> parameter_value_str;
+        parameter_value = atof(parameter_value_str.c_str());
+
+        if(selection == "1") {
+            _distanceThreshold = parameter_value;
+            std::cout << "Value set!" << std::endl;
+        }
+        else if(selection == "2"){
+            _pointColorThreshold = parameter_value;
+            std::cout << "Value set!" << std::endl;
+        }
+        else if(selection == "3"){
+            _regionColorThreshold = parameter_value;
+            std::cout << "Value set!" << std::endl;
+        }
+        else if(selection == "4"){
+            _minClusterSize = parameter_value;
+            std::cout << "Value set!" << std::endl;
+        }
+        else{
+            continueLoop = false;
+        }
+
+        region_growing_rgb(cloud);
+
+    }
+
+}
+
 void region_growing_rgb(pcl::PointCloud<PointT>::Ptr cloud){
     pcl::ScopeTime t("region_growing_rgb");
 
@@ -113,15 +183,17 @@ void region_growing_rgb(pcl::PointCloud<PointT>::Ptr cloud){
     pcl::RegionGrowingRGB<PointT> reg;
     reg.setInputCloud (cloud);
     reg.setSearchMethod (tree);
-    reg.setDistanceThreshold (3);
-    reg.setPointColorThreshold (3);
-    reg.setRegionColorThreshold (3);
-    reg.setMinClusterSize (300);
+    reg.setDistanceThreshold (_distanceThreshold);
+    reg.setPointColorThreshold (_pointColorThreshold);
+    reg.setRegionColorThreshold (_regionColorThreshold);
+    reg.setMinClusterSize (_minClusterSize);
 
     std::vector <pcl::PointIndices> clusters;
     reg.extract (clusters);
 
     pcl::PointCloud <pcl::PointXYZRGB>::Ptr colored_cloud = reg.getColoredCloud ();
+
+    pclViewer->removeAllPointClouds();
 
     pclViewer->addPointCloud (colored_cloud, ColorHandlerRGB(colored_cloud), "segmentation");
     pclViewer->setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 1, "segmentation");
@@ -153,7 +225,7 @@ void regionGrowing(pcl::PointCloud<PointT>::Ptr cloud){
     reg.setInputCloud (cloud);
     //reg.setIndices (indices);
     reg.setInputNormals (normals);
-    reg.setSmoothnessThreshold (10.0 / 180.0 * M_PI);
+    reg.setSmoothnessThreshold (pcl::deg2rad(5.0));
     reg.setCurvatureThreshold (1.0);
 
     std::vector <pcl::PointIndices> clusters;
@@ -163,6 +235,110 @@ void regionGrowing(pcl::PointCloud<PointT>::Ptr cloud){
 
     pclViewer->addPointCloud (colored_cloud, ColorHandlerRGB(colored_cloud), "segmentation");
     pclViewer->setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 1, "segmentation");
+}
+
+void addSupervoxelConnectionsToViewer (pcl::PointXYZRGBA &supervoxel_center,
+                                       pcl::PointCloud<pcl::PointXYZRGBA> &adjacent_supervoxel_centers,
+                                       std::string supervoxel_name,
+                                       boost::shared_ptr<pcl::visualization::PCLVisualizer> & viewer)
+{
+    typedef pcl::PointXYZRGBA PointT;
+    typedef pcl::PointCloud<PointT> PointCloudT;
+
+    vtkSmartPointer<vtkPoints> points = vtkSmartPointer<vtkPoints>::New ();
+    vtkSmartPointer<vtkCellArray> cells = vtkSmartPointer<vtkCellArray>::New ();
+    vtkSmartPointer<vtkPolyLine> polyLine = vtkSmartPointer<vtkPolyLine>::New ();
+
+    //Iterate through all adjacent points, and add a center point to adjacent point pair
+    PointCloudT::iterator adjacent_itr = adjacent_supervoxel_centers.begin ();
+    for ( ; adjacent_itr != adjacent_supervoxel_centers.end (); ++adjacent_itr)
+    {
+        points->InsertNextPoint (supervoxel_center.data);
+        points->InsertNextPoint (adjacent_itr->data);
+    }
+    // Create a polydata to store everything in
+    vtkSmartPointer<vtkPolyData> polyData = vtkSmartPointer<vtkPolyData>::New ();
+    // Add the points to the dataset
+    polyData->SetPoints (points);
+    polyLine->GetPointIds  ()->SetNumberOfIds(points->GetNumberOfPoints ());
+    for(unsigned int i = 0; i < points->GetNumberOfPoints (); i++)
+        polyLine->GetPointIds ()->SetId (i,i);
+    cells->InsertNextCell (polyLine);
+    // Add the lines to the dataset
+    polyData->SetLines (cells);
+
+    viewer->addModelFromPolyData (polyData,supervoxel_name);
+}
+
+void superVoxels(pcl::PointCloud<pcl::PointXYZRGBA>::Ptr cloud){
+
+    typedef pcl::PointXYZRGBA PointT;
+    typedef pcl::PointCloud<PointT> PointCloudT;
+    typedef pcl::PointNormal PointNT;
+    typedef pcl::PointCloud<PointNT> PointNCloudT;
+    typedef pcl::PointXYZL PointLT;
+    typedef pcl::PointCloud<PointLT> PointLCloudT;
+
+    pcl::ScopeTime t("Segmentation in Supervoxels");
+
+    double voxel_resolution = 0.01;
+    double seed_resolution = 0.05;
+    bool use_transform = true;
+    double color_importance = 0.2;
+    double spatial_importance = 0.4;
+    double normal_importance = 1;
+
+    pcl::SupervoxelClustering<PointT> super (voxel_resolution, seed_resolution, use_transform);
+    super.setInputCloud (cloud);
+    super.setColorImportance (color_importance);
+    super.setSpatialImportance (spatial_importance);
+    super.setNormalImportance (normal_importance);
+
+    std::map <uint32_t, pcl::Supervoxel<PointT>::Ptr > supervoxel_clusters;
+    super.extract (supervoxel_clusters);
+    //super.refineSupervoxels(10, supervoxel_clusters);
+    pcl::console::print_info ("Found %d supervoxels\n", supervoxel_clusters.size ());
+
+
+    // Voxel Cloud Colors
+    PointCloudT::Ptr colored_cloud = super.getColoredVoxelCloud ();
+    pclViewer->addPointCloud (colored_cloud, "colored voxels");
+    pclViewer->setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_OPACITY, 1, "colored voxels");
+
+    // Voxel Graph
+    std::multimap<uint32_t, uint32_t> supervoxel_adjacency;
+    super.getSupervoxelAdjacency (supervoxel_adjacency);
+
+
+//    // Print Graph Connectivity
+//    std::multimap<uint32_t,uint32_t>::iterator label_itr = supervoxel_adjacency.begin ();
+//    for ( ; label_itr != supervoxel_adjacency.end (); )
+//    {
+//        //First get the label
+//        uint32_t supervoxel_label = label_itr->first;
+//        //Now get the supervoxel corresponding to the label
+//        pcl::Supervoxel<PointT>::Ptr supervoxel = supervoxel_clusters.at(supervoxel_label);
+
+//        //Now we need to iterate through the adjacent supervoxels and make a point cloud of them
+//        PointCloudT adjacent_supervoxel_centers;
+//        std::multimap<uint32_t,uint32_t>::iterator adjacent_itr = supervoxel_adjacency.equal_range (supervoxel_label).first;
+//        for ( ; adjacent_itr!=supervoxel_adjacency.equal_range (supervoxel_label).second; ++adjacent_itr)
+//        {
+//            pcl::Supervoxel<PointT>::Ptr neighbor_supervoxel = supervoxel_clusters.at (adjacent_itr->second);
+//            adjacent_supervoxel_centers.push_back (neighbor_supervoxel->centroid_);
+//        }
+//        //Now we make a name for this polygon
+//        std::stringstream ss;
+//        ss << "supervoxel_" << supervoxel_label;
+//        //This function is shown below, but is beyond the scope of this tutorial - basically it just generates a "star" polygon mesh from the points given
+//        addSupervoxelConnectionsToViewer (supervoxel->centroid_, adjacent_supervoxel_centers, ss.str (), pclViewer);
+//        //Move iterator forward to next label
+//        label_itr = supervoxel_adjacency.upper_bound (supervoxel_label);
+//    }
+
+
+
+
 }
 
 pcl::PointCloud<PointT>::Ptr smoothPointCloud(pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud){
@@ -235,11 +411,20 @@ int main (int argc, char** argv){
     pcl::PointCloud<PointT>::Ptr smoothed_cloud(new pcl::PointCloud<PointT>);
     smoothed_cloud = smoothPointCloud(scene_segmented_xyzrgb);
 
-    regionGrowing(smoothed_cloud);
+   // pcl::io::savePCDFileASCII(std::string("../toSegment.pcd"), *smoothed_cloud);
+
+//    boost::thread regionThread(region_growing_rgb_thread, smoothed_cloud);
+
+
+    // SuperVoxels
+    pcl::PointCloud<pcl::PointXYZRGBA>::Ptr smoothed_cloud_xyzrgb(new pcl::PointCloud<pcl::PointXYZRGBA>);
+    pcl::copyPointCloud(*smoothed_cloud, *smoothed_cloud_xyzrgb);
+    superVoxels(smoothed_cloud_xyzrgb);
+
 
     while (!pclViewer->wasStopped()) {
         pclViewer->spinOnce (100);
-        pclViewer->spinOnce (100);
+        pclViewer2->spinOnce (100);
     }
 
     return 0;
