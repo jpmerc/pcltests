@@ -22,7 +22,7 @@ Current Limitations :
 
 3. Euclidean Clusters Segmentation will not work with the current settings (4cm distance threshold between points to be considered in the same object). The threshold was set this high to compensate the bad quality of the scans.
 
-4. Upsampling can't be done in step 11), because doing so would change the dimensions of objects in the container **TO TEST**
+4. Upsampling can't be done in step 11), because doing so would change the dimensions of objects in the container
 
 5. The Kinect has some trouble detecting the depth of thin objects. It results of the container taking the color of the object (color of the rgb image registered to the depth of the container)
 
@@ -39,7 +39,7 @@ Possible Solutions :
 Future Work :
 - Segmentation with supervoxels and spectral clustering or Random Walks (http://pointclouds.org/blog/tocs/alexandrov/index.php)
 
-- Test upsampling methods
+- Test upsampling methods (MLS : Sample Local Plane, Voxel Grid Dilation, Random Uniform Density) : they change the dimensions when trying to upsample enough to fill holes
 
 - Search techniques to check if it is possible to improve Kinect scan quality (better resolution)
 
