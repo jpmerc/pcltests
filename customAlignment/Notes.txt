@@ -24,6 +24,8 @@ Current Limitations :
 
 4. Upsampling can't be done in step 11), because doing so would change the dimensions of objects in the container **TO TEST**
 
+5. The Kinect has some trouble detecting the depth of thin objects. It results of the container taking the color of the object (color of the rgb image registered to the depth of the container)
+
 
 
 Possible Solutions : 
@@ -33,4 +35,11 @@ Possible Solutions :
 
 3. Other Segmentation technique with maybe upsampling if it does not affect the dimensions of the objects in the container.
 
+
+Future Work :
+- Segmentation with supervoxels and spectral clustering or Random Walks (http://pointclouds.org/blog/tocs/alexandrov/index.php)
+
+- Test upsampling methods
+
+- Search techniques to check if it is possible to improve Kinect scan quality (better resolution)
 
