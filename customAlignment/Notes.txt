@@ -1,0 +1,36 @@
+Steps to segment an object from a container
+
+1) Downsample the cloud (resolution of 1cm)
+2) Calculate the normals in a radius of 2.5cm
+3) Calculate the keypoints (ISS3D and uniform sampling) --steps 4-6 in parallel for both methods
+4) FPFH features
+5) Coarse alignment (correspondances = most similar feature, median rejection and RANSAC selection based on most inliers)
+6) Fine Alignment (ICP)
+7) Select the best transformation from the different transformations of keypoints
+8) Calculate convex hull of the model (container)
+9) Shrink Convex Hull towards model centroid (1.5cm)
+10) Crop Points of the scene with the shrinked hull (only keep points lying in the hull)
+11) Smooth remaining point cloud
+12) Euclidean Cluster Extraction (threshold = 4cm)
+
+
+
+Current Limitations :
+1. The Hull is shrinked by a certain distance (1.5cm). This is done to remove the container from the scan. However, this will lead to some parts of the objects contained being erased too.
+
+2. The Hull also limits the height of the objects. It keeps only the points in the 3D hull. Therefore, the points higher than the height of the container are not kept.
+
+3. Euclidean Clusters Segmentation will not work with the current settings (4cm distance threshold between points to be considered in the same object). The threshold was set this high to compensate the bad quality of the scans.
+
+4. Upsampling can't be done in step 11), because doing so would change the dimensions of objects in the container **TO TEST**
+
+
+
+Possible Solutions : 
+1. ??
+
+2. The Hull could be found in 2D instead of 3D. The points from the scene can be projected in 2D. Therefore, there is no limit to the height of the objects.
+
+3. Other Segmentation technique with maybe upsampling if it does not affect the dimensions of the objects in the container.
+
+
