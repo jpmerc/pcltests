@@ -55,6 +55,7 @@ using namespace std;
 
 boost::shared_ptr<pcl::visualization::PCLVisualizer> pclViewer2 (new pcl::visualization::PCLVisualizer ("3D Viewer2"));
 boost::shared_ptr<pcl::visualization::PCLVisualizer> pclViewer (new pcl::visualization::PCLVisualizer ("3D Viewer"));
+boost::shared_ptr<pcl::visualization::PCLVisualizer> pclViewer3 (new pcl::visualization::PCLVisualizer ("3D Viewer3"));
 
 
 
@@ -81,6 +82,13 @@ void initPCLViewer(){
     vtkSmartPointer<vtkRenderWindow> renderWindow2 = pclViewer2->getRenderWindow();
     renderWindow2->SetSize(800,450);
     renderWindow2->Render();
+
+    pclViewer3->setBackgroundColor (0, 0, 0);
+    pclViewer3->initCameraParameters ();
+    pclViewer3->setCameraPosition(0,0,0,0,0,1,0,-1,0);
+    vtkSmartPointer<vtkRenderWindow> renderWindow3 = pclViewer3->getRenderWindow();
+    renderWindow3->SetSize(800,450);
+    renderWindow3->Render();
 
 }
 
@@ -201,6 +209,7 @@ pcl::PointCloud<PointT>::Ptr cropAndSegmentScene(pcl::PointCloud<PointT>::Ptr sc
 
     pcl::PointCloud<PointT>::Ptr centroid_cloud = getCentroid(model_cloud);
     pcl::PointCloud<PointT>::Ptr shrinked_hull = shrinkCloud(surface_hull, centroid_cloud, 0.015);
+    //pcl::PointCloud<PointT>::Ptr shrinked_hull = surface_hull;
 
     pcl::PointCloud<PointT>::Ptr objects (new pcl::PointCloud<PointT>);
     pcl::CropHull<PointT> bb_filter2;
@@ -407,39 +416,39 @@ void superVoxels(pcl::PointCloud<pcl::PointXYZRGBA>::Ptr cloud){
 
     // Voxel Cloud Colors
     PointCloudT::Ptr colored_cloud = super.getColoredVoxelCloud ();
-    pclViewer->addPointCloud (colored_cloud, "colored voxels");
-    pclViewer->setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_OPACITY, 1, "colored voxels");
+    pclViewer3->addPointCloud (colored_cloud, "colored voxels");
+    pclViewer3->setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_OPACITY, 1, "colored voxels");
 
     // Voxel Graph
     std::multimap<uint32_t, uint32_t> supervoxel_adjacency;
     super.getSupervoxelAdjacency (supervoxel_adjacency);
 
 
-//    // Print Graph Connectivity
-//    std::multimap<uint32_t,uint32_t>::iterator label_itr = supervoxel_adjacency.begin ();
-//    for ( ; label_itr != supervoxel_adjacency.end (); )
-//    {
-//        //First get the label
-//        uint32_t supervoxel_label = label_itr->first;
-//        //Now get the supervoxel corresponding to the label
-//        pcl::Supervoxel<PointT>::Ptr supervoxel = supervoxel_clusters.at(supervoxel_label);
+    // Print Graph Connectivity
+    std::multimap<uint32_t,uint32_t>::iterator label_itr = supervoxel_adjacency.begin ();
+    for ( ; label_itr != supervoxel_adjacency.end (); )
+    {
+        //First get the label
+        uint32_t supervoxel_label = label_itr->first;
+        //Now get the supervoxel corresponding to the label
+        pcl::Supervoxel<PointT>::Ptr supervoxel = supervoxel_clusters.at(supervoxel_label);
 
-//        //Now we need to iterate through the adjacent supervoxels and make a point cloud of them
-//        PointCloudT adjacent_supervoxel_centers;
-//        std::multimap<uint32_t,uint32_t>::iterator adjacent_itr = supervoxel_adjacency.equal_range (supervoxel_label).first;
-//        for ( ; adjacent_itr!=supervoxel_adjacency.equal_range (supervoxel_label).second; ++adjacent_itr)
-//        {
-//            pcl::Supervoxel<PointT>::Ptr neighbor_supervoxel = supervoxel_clusters.at (adjacent_itr->second);
-//            adjacent_supervoxel_centers.push_back (neighbor_supervoxel->centroid_);
-//        }
-//        //Now we make a name for this polygon
-//        std::stringstream ss;
-//        ss << "supervoxel_" << supervoxel_label;
-//        //This function is shown below, but is beyond the scope of this tutorial - basically it just generates a "star" polygon mesh from the points given
-//        addSupervoxelConnectionsToViewer (supervoxel->centroid_, adjacent_supervoxel_centers, ss.str (), pclViewer);
-//        //Move iterator forward to next label
-//        label_itr = supervoxel_adjacency.upper_bound (supervoxel_label);
-//    }
+        //Now we need to iterate through the adjacent supervoxels and make a point cloud of them
+        PointCloudT adjacent_supervoxel_centers;
+        std::multimap<uint32_t,uint32_t>::iterator adjacent_itr = supervoxel_adjacency.equal_range (supervoxel_label).first;
+        for ( ; adjacent_itr!=supervoxel_adjacency.equal_range (supervoxel_label).second; ++adjacent_itr)
+        {
+            pcl::Supervoxel<PointT>::Ptr neighbor_supervoxel = supervoxel_clusters.at (adjacent_itr->second);
+            adjacent_supervoxel_centers.push_back (neighbor_supervoxel->centroid_);
+        }
+        //Now we make a name for this polygon
+        std::stringstream ss;
+        ss << "supervoxel_" << supervoxel_label;
+        //This function is shown below, but is beyond the scope of this tutorial - basically it just generates a "star" polygon mesh from the points given
+        addSupervoxelConnectionsToViewer (supervoxel->centroid_, adjacent_supervoxel_centers, ss.str (), pclViewer3);
+        //Move iterator forward to next label
+        label_itr = supervoxel_adjacency.upper_bound (supervoxel_label);
+    }
 
 
 
@@ -561,7 +570,41 @@ void euclideanClusters(pcl::PointCloud<PointT>::Ptr cloud){
 
     }
 
+}
 
+
+void findCylinderPrimitive(pcl::PointCloud<PointT>::Ptr cloud){
+
+    pcl::ScopeTime t("RANSAC CYLINDER");
+
+    pcl::SACSegmentationFromNormals<PointT, PointT> seg;
+    seg.setOptimizeCoefficients (true);
+    seg.setModelType (pcl::SACMODEL_CYLINDER);
+    seg.setMethodType (pcl::SAC_RANSAC);
+    seg.setNormalDistanceWeight (0.1);
+    seg.setMaxIterations (10000);
+    seg.setDistanceThreshold (0.05);
+    seg.setRadiusLimits (0.02, 0.1);
+    seg.setInputCloud (cloud);
+    seg.setInputNormals (cloud);
+
+    pcl::PointIndices::Ptr inliers (new pcl::PointIndices);
+    pcl::ModelCoefficients::Ptr coefficients (new pcl::ModelCoefficients);
+    seg.segment (*inliers, *coefficients);
+    std::cerr << "Cylinder coefficients: " << *coefficients << std::endl;
+    std::cerr << "Cylinder inliers: " << *inliers << std::endl;
+
+    pcl::PointCloud<PointT>::Ptr cylinder (new pcl::PointCloud<PointT> ());
+    pcl::ExtractIndices<PointT> extract;
+    extract.setInputCloud (cloud);
+    extract.setIndices (inliers);
+    extract.setNegative (false);
+    extract.filter (*cylinder);
+
+    if (cylinder->points.empty ()) std::cerr << "Can't find the cylindrical component." << std::endl;
+
+    pclViewer3->addPointCloud (cylinder, ColorHandlerT(cylinder, 255.0, 255.0, 0.0), "Cylinder");
+    pclViewer3->setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 1, "Cylinder");
 
 }
 
@@ -590,21 +633,27 @@ int main (int argc, char** argv){
    // boost::thread regionThread(region_growing_rgb_thread, smoothed_cloud);
 
    // regionGrowing(smoothed_cloud);
-    euclideanClusters(smoothed_cloud);
-  //  pclViewer->removeAllPointClouds();
-    pclViewer->addPointCloud (scene_cloud, ColorHandlerT(scene_cloud, 255.0, 0.0, 0.0), "scene");
-    pclViewer->setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_OPACITY, 0.9, "scene");
+//    euclideanClusters(smoothed_cloud);
+//  //  pclViewer->removeAllPointClouds();
+//    pclViewer->addPointCloud (scene_cloud, ColorHandlerT(scene_cloud, 255.0, 0.0, 0.0), "scene");
+//    pclViewer->setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_OPACITY, 0.9, "scene");
 
 
-//    // SuperVoxels
+    // SuperVoxels
 //    pcl::PointCloud<pcl::PointXYZRGBA>::Ptr smoothed_cloud_xyzrgb(new pcl::PointCloud<pcl::PointXYZRGBA>);
 //    pcl::copyPointCloud(*smoothed_cloud, *smoothed_cloud_xyzrgb);
 //    superVoxels(smoothed_cloud_xyzrgb);
 
 
+    // Find Primitives
+//    findCylinderPrimitive(scene_segmented);
+
+
+
     while (!pclViewer->wasStopped()) {
         pclViewer->spinOnce (100);
         pclViewer2->spinOnce (100);
+        pclViewer3->spinOnce (100);
     }
 
     return 0;
