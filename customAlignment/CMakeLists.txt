@@ -17,4 +17,6 @@ target_link_libraries (customSegmentation ${PCL_LIBRARIES})
 add_executable (wholeLoop wholeLoop.cpp)
 target_link_libraries (wholeLoop ${PCL_LIBRARIES})
 
+add_executable (wholeLoop_workingExample wholeLoop_workingExample.cpp)
+target_link_libraries (wholeLoop_workingExample ${PCL_LIBRARIES})
 

@@ -465,30 +465,55 @@ pcl::PointCloud<PointT>::Ptr smoothPointCloud(pcl::PointCloud<pcl::PointXYZRGB>:
     mls2.setSearchRadius (0.04);
     mls2.setPolynomialFit (true);
     mls2.setPolynomialOrder (2);
-//    mls2.setUpsamplingMethod (pcl::MovingLeastSquares<pcl::PointXYZRGB, PointT>::SAMPLE_LOCAL_PLANE);
-//    mls2.setUpsamplingRadius (0.01);
-//    mls2.setUpsamplingStepSize (0.005);
+
+    //    mls2.setUpsamplingMethod (pcl::MovingLeastSquares<pcl::PointXYZRGB, PointT>::SAMPLE_LOCAL_PLANE);
+    //    mls2.setUpsamplingRadius (0.05);
+    //    mls2.setUpsamplingStepSize (0.005);
+
+//    mls2.setUpsamplingMethod (pcl::MovingLeastSquares<pcl::PointXYZRGB, PointT>::VOXEL_GRID_DILATION);
+//    mls2.setDilationVoxelSize(0.005);
+//    mls2.setDilationIterations(1);
+
+//     mls2.setUpsamplingMethod (pcl::MovingLeastSquares<pcl::PointXYZRGB, PointT>::RANDOM_UNIFORM_DENSITY);
+//     mls2.setPointDensity(100);
+
     mls2.process (*cloud_smoothed2);
 
-    cloud_smoothed2 = downsample(cloud_smoothed2, 0.01);
+    //cloud_smoothed2 = downsample(cloud_smoothed2, 0.01);
 
 
-    pcl::PointCloud<PointT>::Ptr cloud_smoothed2_translated(new pcl::PointCloud<PointT>);
+//    // For VOXEL_GRID_DILATION only
+//    pcl::PointCloud<PointT>::Ptr cloud_smoothed3(new pcl::PointCloud<PointT>);
+//    for(int i=0; i<cloud_smoothed2->size(); i++){
+//        PointT pt = cloud_smoothed2->at(i);
+//        if(pt.x > -5 && pt.x < 5 && pt.y > -5 && pt.y < 5 && pt.z > -5 && pt.z < 5){
+//        std::cout << "X : " << cloud_smoothed2->at(i).x << std::endl;
+//        std::cout << "Y : " << cloud_smoothed2->at(i).y << std::endl;
+//        std::cout << "Z : " << cloud_smoothed2->at(i).z << std::endl;
+//            cloud_smoothed3->push_back(cloud_smoothed2->at(i));
+//        }
+//    }
+//    cloud_smoothed2 = cloud_smoothed3;
+
+
+    pcl::PointCloud<PointT>::Ptr cloud_smoothed3_translated(new pcl::PointCloud<PointT>);
     Eigen::Matrix4f cloud_translation;
     cloud_translation.setIdentity();
     cloud_translation(0,3) = 1; //x translation to compare with other mls
-    pcl::transformPointCloud(*cloud_smoothed2, *cloud_smoothed2_translated, cloud_translation);
+    pcl::transformPointCloud(*cloud_smoothed2, *cloud_smoothed3_translated, cloud_translation);
 
 
 
-    pclViewer2->addPointCloud (cloud, ColorHandlerRGB(cloud), "cloud");
-    pclViewer2->setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 1, "cloud");
+    pclViewer2->addPointCloud (cloud, ColorHandlerR(cloud, 0.0, 255.0, 0.0), "cloud");
+    pclViewer2->setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 3, "cloud");
 
-    pclViewer2->addPointCloud (cloud_smoothed2_translated, ColorHandlerT(cloud_smoothed2_translated, 255.0, 0.0, 0.0), "smoothed2");
+    pclViewer2->addPointCloud (cloud_smoothed2, ColorHandlerT(cloud_smoothed2, 255.0, 255.0, 0.0), "smoothed2");
     pclViewer2->setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 1, "smoothed2");
 
 
 
+    pcl::io::savePCDFile("cloud.pcd", *cloud);
+    pcl::io::savePCDFile("cloud_smoothed.pcd", *cloud_smoothed2);
 
     return cloud_smoothed2;
 
@@ -511,8 +536,8 @@ void euclideanClusters(pcl::PointCloud<PointT>::Ptr cloud){
     ec.extract (cluster_indices);
 
     pclViewer->removeAllPointClouds();
-   // pclViewer->addPointCloud (cloud, ColorHandlerT(cloud, 0.0, 255.0, 0.0), "scene_filtered");
-   // pclViewer->setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 2, "scene_filtered");
+    pclViewer->addPointCloud (cloud, ColorHandlerT(cloud, 0.0, 255.0, 0.0), "scene_filtered");
+    pclViewer->setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 2, "scene_filtered");
 
   //  std::cout << "Number of clusters : " << cluster_indices.at(0) << std::endl;
 
@@ -566,6 +591,7 @@ int main (int argc, char** argv){
 
    // regionGrowing(smoothed_cloud);
     euclideanClusters(smoothed_cloud);
+  //  pclViewer->removeAllPointClouds();
     pclViewer->addPointCloud (scene_cloud, ColorHandlerT(scene_cloud, 255.0, 0.0, 0.0), "scene");
     pclViewer->setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_OPACITY, 0.9, "scene");
 
