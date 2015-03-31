@@ -723,8 +723,8 @@ int main (int argc, char** argv){
     pcl::PointCloud<pcl::PointXYZRGB>::Ptr in1_xyzrgb(new pcl::PointCloud<pcl::PointXYZRGB>);
     pcl::PointCloud<pcl::PointXYZRGB>::Ptr container_model_xyzrgb(new pcl::PointCloud<pcl::PointXYZRGB>);
 
-    pcl::io::loadPCDFile("../device1_1.pcd", *in1_xyzrgb);
-    pcl::io::loadPCDFile("../container_model.pcd", *container_model_xyzrgb);
+    pcl::io::loadPCDFile("../bmw_color_balls.pcd", *in1_xyzrgb);
+    pcl::io::loadPCDFile("../bmw_container_segmented.pcd", *container_model_xyzrgb);
 
     initPCLViewer();
 
