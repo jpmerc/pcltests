@@ -455,6 +455,59 @@ void superVoxels(pcl::PointCloud<pcl::PointXYZRGBA>::Ptr cloud){
 
 }
 
+
+void superVoxels_clustering(pcl::PointCloud<pcl::PointXYZRGBA>::Ptr cloud){
+
+    typedef pcl::PointXYZRGBA PointT;
+    typedef pcl::PointCloud<PointT> PointCloudT;
+    typedef pcl::PointNormal PointNT;
+    typedef pcl::PointCloud<PointNT> PointNCloudT;
+    typedef pcl::PointXYZL PointLT;
+    typedef pcl::PointCloud<PointLT> PointLCloudT;
+
+    pcl::ScopeTime t("Segmentation in Supervoxels");
+
+    double voxel_resolution = 0.01;
+    double seed_resolution = 0.05;
+    bool use_transform = true;
+    double color_importance = 0.2;
+    double spatial_importance = 0.4;
+    double normal_importance = 1;
+
+    pcl::SupervoxelClustering<PointT> super (voxel_resolution, seed_resolution, use_transform);
+    super.setInputCloud (cloud);
+    super.setColorImportance (color_importance);
+    super.setSpatialImportance (spatial_importance);
+    super.setNormalImportance (normal_importance);
+
+    std::map <uint32_t, pcl::Supervoxel<PointT>::Ptr > supervoxel_clusters;
+    super.extract (supervoxel_clusters);
+    //super.refineSupervoxels(10, supervoxel_clusters);
+    pcl::console::print_info ("Found %d supervoxels\n", supervoxel_clusters.size ());
+
+
+    // Voxel Cloud Colors
+    PointCloudT::Ptr colored_cloud = super.getColoredVoxelCloud ();
+    pclViewer3->addPointCloud (colored_cloud, "colored voxels");
+    pclViewer3->setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_OPACITY, 1, "colored voxels");
+
+    // Voxel Graph
+    std::multimap<uint32_t, uint32_t> supervoxel_adjacency;
+    super.getSupervoxelAdjacency (supervoxel_adjacency);
+
+    // Initialize a map with supervoxel indices and their normals
+    std::map<uint32_t, pcl::PointNormal> supervoxel_normals;
+    for (std::map<uint32_t, pcl::Supervoxel<PointT>::Ptr>::iterator it=supervoxel_clusters.begin(); it!=supervoxel_clusters.end(); ++it){
+
+
+    }
+
+
+
+
+
+}
+
 pcl::PointCloud<PointT>::Ptr smoothPointCloud(pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud){
 
     pcl::ScopeTime t("Moving Least Squares");
@@ -614,19 +667,19 @@ int main (int argc, char** argv){
     pcl::PointCloud<PointT>::Ptr scene_cloud(new pcl::PointCloud<PointT>);
     pcl::PointCloud<PointT>::Ptr model_cloud(new pcl::PointCloud<PointT>);
 
-    pcl::io::loadPCDFile("../customAlignment_scene.pcd", *scene_cloud);
-    pcl::io::loadPCDFile("../customAlignment_fine.pcd", *model_cloud);
+    pcl::io::loadPCDFile("../bmw_clutter_remaining.pcd", *scene_cloud);
+//    pcl::io::loadPCDFile("../customAlignment_fine.pcd", *model_cloud);
 
     initPCLViewer();
 
-    pcl::PointCloud<PointT>::Ptr scene_segmented(new pcl::PointCloud<PointT>);
-    scene_segmented = cropAndSegmentScene(scene_cloud, model_cloud);
+//    pcl::PointCloud<PointT>::Ptr scene_segmented(new pcl::PointCloud<PointT>);
+//    scene_segmented = cropAndSegmentScene(scene_cloud, model_cloud);
 
-    // Smooth remaining points
-    pcl::PointCloud<pcl::PointXYZRGB>::Ptr scene_segmented_xyzrgb(new pcl::PointCloud<pcl::PointXYZRGB>);
-    pcl::PointCloud<PointT>::Ptr smoothed_cloud(new pcl::PointCloud<PointT>);
-    pcl::copyPointCloud(*scene_segmented, *scene_segmented_xyzrgb);
-    smoothed_cloud = smoothPointCloud(scene_segmented_xyzrgb);
+//    // Smooth remaining points
+//    pcl::PointCloud<pcl::PointXYZRGB>::Ptr scene_segmented_xyzrgb(new pcl::PointCloud<pcl::PointXYZRGB>);
+//    pcl::PointCloud<PointT>::Ptr smoothed_cloud(new pcl::PointCloud<PointT>);
+//    pcl::copyPointCloud(*scene_segmented, *scene_segmented_xyzrgb);
+//    smoothed_cloud = smoothPointCloud(scene_segmented_xyzrgb);
 
    // pcl::io::savePCDFileASCII(std::string("../toSegment.pcd"), *smoothed_cloud);
 
@@ -640,9 +693,9 @@ int main (int argc, char** argv){
 
 
     // SuperVoxels
-//    pcl::PointCloud<pcl::PointXYZRGBA>::Ptr smoothed_cloud_xyzrgb(new pcl::PointCloud<pcl::PointXYZRGBA>);
-//    pcl::copyPointCloud(*smoothed_cloud, *smoothed_cloud_xyzrgb);
-//    superVoxels(smoothed_cloud_xyzrgb);
+    pcl::PointCloud<pcl::PointXYZRGBA>::Ptr scene_cloud_xyzrgb(new pcl::PointCloud<pcl::PointXYZRGBA>);
+    pcl::copyPointCloud(*scene_cloud, *scene_cloud_xyzrgb);
+    superVoxels(scene_cloud_xyzrgb);
 
 
     // Find Primitives

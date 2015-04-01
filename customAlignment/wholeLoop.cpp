@@ -61,9 +61,13 @@ using namespace std;
 boost::shared_ptr<pcl::visualization::PCLVisualizer> pclViewer (new pcl::visualization::PCLVisualizer ("3D Viewer"));
 //boost::shared_ptr<pcl::visualization::PCLVisualizer> pclViewer2 (new pcl::visualization::PCLVisualizer ("3D Viewer 2"));
 boost::shared_ptr<pcl::visualization::PCLVisualizer> pclViewer3 (new pcl::visualization::PCLVisualizer ("3D Viewer 3"));
-//boost::shared_ptr<pcl::visualization::PCLVisualizer> pclViewer4 (new pcl::visualization::PCLVisualizer ("3D Viewer 4"));
+boost::shared_ptr<pcl::visualization::PCLVisualizer> pclViewer4 (new pcl::visualization::PCLVisualizer ("3D Viewer 4"));
 boost::shared_ptr<pcl::visualization::PCLVisualizer> pclViewer5 (new pcl::visualization::PCLVisualizer ("3D Viewer 5"));
 
+double _distanceThreshold = 3.0;
+double _pointColorThreshold = 3.0;
+double _regionColorThreshold = 3.0;
+double _minClusterSize = 20;
 
 
 struct CorrespondenceResults {
@@ -109,12 +113,12 @@ void initPCLViewer(){
     renderWindow3->SetSize(800,450);
     renderWindow3->Render();
 
-    //    pclViewer4->setBackgroundColor (0, 0, 0);
-    //    pclViewer4->initCameraParameters ();
-    //    pclViewer4->setCameraPosition(0,0,0,0,0,1,0,-1,0);
-    //    vtkSmartPointer<vtkRenderWindow> renderWindow4 = pclViewer4->getRenderWindow();
-    //    renderWindow4->SetSize(800,450);
-    //    renderWindow4->Render();
+    pclViewer4->setBackgroundColor (0, 0, 0);
+    pclViewer4->initCameraParameters ();
+    pclViewer4->setCameraPosition(0,0,0,0,0,1,0,-1,0);
+    vtkSmartPointer<vtkRenderWindow> renderWindow4 = pclViewer4->getRenderWindow();
+    renderWindow4->SetSize(800,450);
+    renderWindow4->Render();
 
     pclViewer5->setBackgroundColor (0, 0, 0);
     pclViewer5->initCameraParameters ();
@@ -617,8 +621,8 @@ pcl::PointCloud<PointT>::Ptr cropAndSegmentScene(pcl::PointCloud<PointT>::Ptr sc
     pclViewer3->addPointCloud (surface_hull, ColorHandlerT(surface_hull, 255.0, 255.0, 0.0), "hull");
     pclViewer3->setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 2, "hull");
 
-//    pclViewer3->addPointCloud (scene_cloud, ColorHandlerT(scene_cloud, 255.0, 0.0, 0.0), "scene");
-//    pclViewer3->setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 1, "scene");
+    //    pclViewer3->addPointCloud (scene_cloud, ColorHandlerT(scene_cloud, 255.0, 0.0, 0.0), "scene");
+    //    pclViewer3->setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 1, "scene");
 
     pcl::PointCloud<PointT>::Ptr projected_points(new pcl::PointCloud<PointT>);
     if(!set3D){
@@ -758,8 +762,8 @@ pcl::PointCloud<PointT>::Ptr euclideanClusters(pcl::PointCloud<PointT>::Ptr clou
         ss << i;
         std::string ind = ss.str();
         std::string pc_name = "object_" + ind;
-        //  pclViewer5->addPointCloud<PointT>(cloud_cluster, randColor, pc_name);
-        //  pclViewer5->setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 3, pc_name);
+        pclViewer5->addPointCloud<PointT>(cloud_cluster, randColor, pc_name);
+        pclViewer5->setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 3, pc_name);
 
     }
 
@@ -798,6 +802,119 @@ pcl::PointCloud<PointT>::Ptr segmentPointsBelongingToModel(pcl::PointCloud<Point
     return segmented_cloud;
 }
 
+void region_growing_rgb(pcl::PointCloud<PointT>::Ptr cloud){
+    pcl::ScopeTime t("region_growing_rgb");
+
+    pcl::search::KdTree<PointT>::Ptr tree(new pcl::search::KdTree<PointT>);
+    pcl::RegionGrowingRGB<PointT> reg;
+    reg.setInputCloud (cloud);
+    reg.setSearchMethod (tree);
+    reg.setDistanceThreshold (_distanceThreshold);
+    reg.setPointColorThreshold (_pointColorThreshold);
+    reg.setRegionColorThreshold (_regionColorThreshold);
+    reg.setMinClusterSize (_minClusterSize);
+
+    std::vector <pcl::PointIndices> clusters;
+    reg.extract (clusters);
+
+    pcl::PointCloud <pcl::PointXYZRGB>::Ptr colored_cloud(new pcl::PointCloud <pcl::PointXYZRGB>);
+    colored_cloud = reg.getColoredCloud ();
+
+    pclViewer4->removeAllPointClouds();
+
+    if(colored_cloud){
+        std::cout << "Size = " << colored_cloud->size() << std::endl;
+        pclViewer4->addPointCloud (colored_cloud, ColorHandlerRGB(colored_cloud), "segmentation");
+        pclViewer4->setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 1, "segmentation");
+
+    }
+    //return colored_cloud;
+}
+
+void region_growing_rgb_thread(pcl::PointCloud<PointT>::Ptr cloud){
+
+    region_growing_rgb(cloud);
+
+    bool continueLoop = true;
+
+    stringstream ss;
+    ss.str(""); ss.clear();
+    ss << _distanceThreshold;
+    std::string distance_threshold_str = std::string(ss.str());
+    ss.str(""); ss.clear();
+    ss << _pointColorThreshold;
+    std::string pointColorThreshold_str = std::string(ss.str());
+    ss.str(""); ss.clear();
+    ss << _regionColorThreshold;
+    std::string regionColorThreshold_str = std::string(ss.str());
+    ss.str(""); ss.clear();
+    ss << _minClusterSize;
+    std::string minClusterSize_str = std::string(ss.str());
+
+    while(continueLoop){
+
+        //std::cout << continueLoop  << std::endl;
+
+        std::cout << "Choose one of the parameters to modify and press enter : "    << std::endl;
+        std::cout << "1) Distance Threshold (" + distance_threshold_str + ")"       << std::endl;
+        std::cout << "2) Point Color Threshold (" + pointColorThreshold_str + ")"   << std::endl;
+        std::cout << "3) Region Color Threshold (" + regionColorThreshold_str + ")" << std::endl;
+        std::cout << "4) Minimum Cluster Size (" + minClusterSize_str + ")"         << std::endl;
+        std::cout << "5) Quit"                                                      << std::endl;
+
+        string selection = "";
+        std::cin >> selection;
+
+        if(selection == "5") {
+            break;
+        }
+
+        std::cout << "Enter the desired value : " << std::endl;
+        double parameter_value = 0.0;
+        std::string parameter_value_str = "";
+        std::cin >> parameter_value_str;
+        parameter_value = atof(parameter_value_str.c_str());
+
+        if(selection == "1") {
+            _distanceThreshold = parameter_value;
+            std::cout << "Value set!" << std::endl;
+            ss.str(""); ss.clear();
+            ss << _distanceThreshold;
+            distance_threshold_str = std::string(ss.str());
+        }
+        else if(selection == "2"){
+            _pointColorThreshold = parameter_value;
+            std::cout << "Value set!" << std::endl;
+            ss.str(""); ss.clear();
+            ss << _pointColorThreshold;
+            pointColorThreshold_str = std::string(ss.str());
+        }
+        else if(selection == "3"){
+            _regionColorThreshold = parameter_value;
+            std::cout << "Value set!" << std::endl;
+            ss.str(""); ss.clear();
+            ss << _regionColorThreshold;
+            regionColorThreshold_str = std::string(ss.str());
+        }
+        else if(selection == "4"){
+            _minClusterSize = parameter_value;
+            std::cout << "Value set!" << std::endl;
+            ss.str(""); ss.clear();
+            ss << _minClusterSize;
+            minClusterSize_str = std::string(ss.str());
+
+        }
+        else{
+            continueLoop = false;
+        }
+
+        region_growing_rgb(cloud);
+
+    }
+
+}
+
+
 
 int main (int argc, char** argv){
 
@@ -808,7 +925,7 @@ int main (int argc, char** argv){
     pcl::PointCloud<pcl::PointXYZRGB>::Ptr in1_xyzrgb(new pcl::PointCloud<pcl::PointXYZRGB>);
     pcl::PointCloud<pcl::PointXYZRGB>::Ptr container_model_xyzrgb(new pcl::PointCloud<pcl::PointXYZRGB>);
 
-    pcl::io::loadPCDFile("../bmw_handle.pcd", *in1_xyzrgb);
+    pcl::io::loadPCDFile("../bmw_clutter.pcd", *in1_xyzrgb);
     pcl::io::loadPCDFile("../bmw_container_segmented.pcd", *container_model_xyzrgb);
 
     initPCLViewer();
@@ -842,7 +959,7 @@ int main (int argc, char** argv){
     // Find Convex Hull of aligned model, shrink it and crop the points from the scene
     // belonging to the shrinked hull
     pcl::PointCloud<PointT>::Ptr scene_segmented(new pcl::PointCloud<PointT>);
-    scene_segmented = cropAndSegmentScene(best->scene_cloud, best->model_fine_aligned, false, false);
+    scene_segmented = cropAndSegmentScene(best->scene_cloud, best->model_fine_aligned, false, true);
 
     //    // Smooth remaining points
     //    pcl::PointCloud<pcl::PointXYZRGB>::Ptr scene_segmented_xyzrgb(new pcl::PointCloud<pcl::PointXYZRGB>);
@@ -864,10 +981,12 @@ int main (int argc, char** argv){
 
     // Do another round of euclidean clustering
     pcl::PointCloud<PointT>::Ptr euclidean_cloud = euclideanClusters(model_chopped, 0.02);
-    pclViewer5->addPointCloud (euclidean_cloud, ColorHandlerT(euclidean_cloud, 0.0, 255.0, 255.0), "euclidean");
-    pclViewer5->setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 3 , "euclidean");
+    // pclViewer5->addPointCloud (euclidean_cloud, ColorHandlerT(euclidean_cloud, 0.0, 255.0, 255.0), "euclidean");
+    // pclViewer5->setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 3 , "euclidean");
 
+    pcl::io::savePCDFileBinary("../bmw_clutter_remaining.pcd", *euclidean_cloud);
 
+    //boost::thread regionThread(region_growing_rgb_thread, euclidean_cloud);
 
 
     while (!pclViewer->wasStopped()) {
