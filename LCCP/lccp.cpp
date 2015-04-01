@@ -33,17 +33,17 @@ float normals_scale;
 
 ///  Default values of parameters before parsing
 // Supervoxel Stuff
-float voxel_resolution = 0.0075f;
+float voxel_resolution = 0.01f;
 float seed_resolution = 0.03f;
-float color_importance = 0.0f;
+float color_importance = 1.0f;
 float spatial_importance = 1.0f;
 float normal_importance = 4.0f;
 bool use_single_cam_transform = false;
-bool use_supervoxel_refinement = false;
+bool use_supervoxel_refinement = true;
 
 // LCCPSegmentation Stuff
-float concavity_tolerance_threshold = 10;
-float smoothness_threshold = 0.1;
+float concavity_tolerance_threshold = 1;
+float smoothness_threshold = 0.05;
 uint32_t min_segment_size = 0;
 bool use_extended_convexity = false;
 bool use_sanity_criterion = false;
@@ -128,12 +128,12 @@ int main (int argc, char** argv)
             cloud_filtered_translated (new pcl::PointCloud<PointT>);
 
 
-    pcl::io::loadPCDFile("../bmw_color_balls.pcd", *cloud);
+    pcl::io::loadPCDFile("../bmw_clutter_remaining.pcd", *cloud);
 
     // Params
     normals_scale = seed_resolution / 2.0;
     uint k_factor = 0;
-    if (use_extended_convexity) k_factor = 1;
+    if (use_extended_convexity) k_factor = 4;
 
     /// Supervoxels
     pcl::SupervoxelClustering<PointT> super (voxel_resolution, seed_resolution);
