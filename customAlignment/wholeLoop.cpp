@@ -35,6 +35,7 @@
 #include <pcl/filters/voxel_grid.h>
 #include <pcl/filters/extract_indices.h>
 #include <pcl/filters/crop_hull.h>
+#include <pcl/filters/project_inliers.h>
 
 #include <pcl/surface/convex_hull.h>
 #include <pcl/surface/concave_hull.h>
@@ -60,26 +61,26 @@ using namespace std;
 boost::shared_ptr<pcl::visualization::PCLVisualizer> pclViewer (new pcl::visualization::PCLVisualizer ("3D Viewer"));
 //boost::shared_ptr<pcl::visualization::PCLVisualizer> pclViewer2 (new pcl::visualization::PCLVisualizer ("3D Viewer 2"));
 boost::shared_ptr<pcl::visualization::PCLVisualizer> pclViewer3 (new pcl::visualization::PCLVisualizer ("3D Viewer 3"));
-boost::shared_ptr<pcl::visualization::PCLVisualizer> pclViewer4 (new pcl::visualization::PCLVisualizer ("3D Viewer 4"));
+//boost::shared_ptr<pcl::visualization::PCLVisualizer> pclViewer4 (new pcl::visualization::PCLVisualizer ("3D Viewer 4"));
 boost::shared_ptr<pcl::visualization::PCLVisualizer> pclViewer5 (new pcl::visualization::PCLVisualizer ("3D Viewer 5"));
 
 
 
 struct CorrespondenceResults {
-  EIGEN_MAKE_ALIGNED_OPERATOR_NEW
-  Eigen::Matrix4f coarse_transformation;
-  Eigen::Matrix4f fine_transformation;
-  double fine_transformation_score;
-  pcl::Correspondences correspondences;
-  pcl::Correspondences initial_correspondences;
-  pcl::PointCloud<PointT>::Ptr scene_cloud;
-  pcl::PointCloud<PointT>::Ptr model_cloud;
-  pcl::PointCloud<PointT>::Ptr scene_keypoints;
-  pcl::PointCloud<PointT>::Ptr model_keypoints;
-  pcl::PointCloud<pcl::FPFHSignature33>::Ptr scene_features;
-  pcl::PointCloud<pcl::FPFHSignature33>::Ptr model_features;
-  pcl::PointCloud<PointT>::Ptr model_coarse_aligned;
-  pcl::PointCloud<PointT>::Ptr model_fine_aligned;
+    EIGEN_MAKE_ALIGNED_OPERATOR_NEW
+    Eigen::Matrix4f coarse_transformation;
+    Eigen::Matrix4f fine_transformation;
+    double fine_transformation_score;
+    pcl::Correspondences correspondences;
+    pcl::Correspondences initial_correspondences;
+    pcl::PointCloud<PointT>::Ptr scene_cloud;
+    pcl::PointCloud<PointT>::Ptr model_cloud;
+    pcl::PointCloud<PointT>::Ptr scene_keypoints;
+    pcl::PointCloud<PointT>::Ptr model_keypoints;
+    pcl::PointCloud<pcl::FPFHSignature33>::Ptr scene_features;
+    pcl::PointCloud<pcl::FPFHSignature33>::Ptr model_features;
+    pcl::PointCloud<PointT>::Ptr model_coarse_aligned;
+    pcl::PointCloud<PointT>::Ptr model_fine_aligned;
 } ;
 
 std::vector<CorrespondenceResults*> _AlignmentResults;
@@ -94,12 +95,12 @@ void initPCLViewer(){
     renderWindow->SetSize(800,450);
     renderWindow->Render();
 
-//    pclViewer2->setBackgroundColor (0, 0, 0);
-//    pclViewer2->initCameraParameters ();
-//    pclViewer2->setCameraPosition(0,0,0,0,0,1,0,-1,0);
-//    vtkSmartPointer<vtkRenderWindow> renderWindow2 = pclViewer2->getRenderWindow();
-//    renderWindow2->SetSize(800,450);
-//    renderWindow2->Render();
+    //    pclViewer2->setBackgroundColor (0, 0, 0);
+    //    pclViewer2->initCameraParameters ();
+    //    pclViewer2->setCameraPosition(0,0,0,0,0,1,0,-1,0);
+    //    vtkSmartPointer<vtkRenderWindow> renderWindow2 = pclViewer2->getRenderWindow();
+    //    renderWindow2->SetSize(800,450);
+    //    renderWindow2->Render();
 
     pclViewer3->setBackgroundColor (0, 0, 0);
     pclViewer3->initCameraParameters ();
@@ -108,12 +109,12 @@ void initPCLViewer(){
     renderWindow3->SetSize(800,450);
     renderWindow3->Render();
 
-    pclViewer4->setBackgroundColor (0, 0, 0);
-    pclViewer4->initCameraParameters ();
-    pclViewer4->setCameraPosition(0,0,0,0,0,1,0,-1,0);
-    vtkSmartPointer<vtkRenderWindow> renderWindow4 = pclViewer4->getRenderWindow();
-    renderWindow4->SetSize(800,450);
-    renderWindow4->Render();
+    //    pclViewer4->setBackgroundColor (0, 0, 0);
+    //    pclViewer4->initCameraParameters ();
+    //    pclViewer4->setCameraPosition(0,0,0,0,0,1,0,-1,0);
+    //    vtkSmartPointer<vtkRenderWindow> renderWindow4 = pclViewer4->getRenderWindow();
+    //    renderWindow4->SetSize(800,450);
+    //    renderWindow4->Render();
 
     pclViewer5->setBackgroundColor (0, 0, 0);
     pclViewer5->initCameraParameters ();
@@ -140,8 +141,8 @@ void showTransform(std::vector<CorrespondenceResults*> *results, int index){
     pclViewer->addPointCloud (corr->model_fine_aligned, ColorHandlerT(corr->model_fine_aligned, 0.0, 0.0, 255.0), "icp");
     pclViewer->setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 2, "icp");
 
-//    pclViewer->addPointCloud (corr->scene_keypoints, ColorHandlerT(corr->scene_keypoints, 255.0, 255.0, 0.0), "scene_key");
-//    pclViewer->setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 5, "scene_key");
+    //    pclViewer->addPointCloud (corr->scene_keypoints, ColorHandlerT(corr->scene_keypoints, 255.0, 255.0, 0.0), "scene_key");
+    //    pclViewer->setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 5, "scene_key");
 
     pclViewer->addPointCloud (corr->model_keypoints, ColorHandlerT(corr->model_keypoints, 0.0, 0.0, 255.0), "model_key");
     pclViewer->setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 5, "model_key");
@@ -340,15 +341,15 @@ void coarse_alignment(CorrespondenceResults *data){
     rej_median.getRemainingCorrespondences(correspondences, correspondences_median);
     std::cout << "Median Correspondences = " << correspondences_median.size()  << std::endl;
 
-//    pcl::registration::CorrespondenceRejectorSurfaceNormal rej_normals;
-//    pcl::Correspondences correspondences_normals;
-//    rej_normals.initializeDataContainer <PointT, PointT> ();
-//    rej_normals.setInputSource<PointT>(src_cloud);
-//    rej_normals.setInputTarget<PointT>(target_cloud);
-//    rej_normals.setInputNormals<PointT,PointT>(src_cloud);
-//    rej_normals.setTargetNormals<PointT,PointT>(target_cloud);
-//    rej_normals.setThreshold(pcl::deg2rad(45.));
-//    rej_median.getRemainingCorrespondences(correspondences_median, correspondences_normals);
+    //    pcl::registration::CorrespondenceRejectorSurfaceNormal rej_normals;
+    //    pcl::Correspondences correspondences_normals;
+    //    rej_normals.initializeDataContainer <PointT, PointT> ();
+    //    rej_normals.setInputSource<PointT>(src_cloud);
+    //    rej_normals.setInputTarget<PointT>(target_cloud);
+    //    rej_normals.setInputNormals<PointT,PointT>(src_cloud);
+    //    rej_normals.setTargetNormals<PointT,PointT>(target_cloud);
+    //    rej_normals.setThreshold(pcl::deg2rad(45.));
+    //    rej_median.getRemainingCorrespondences(correspondences_median, correspondences_normals);
 
 
     // Correspondence Rejection (RANSAC)
@@ -404,8 +405,8 @@ pcl::PointCloud<PointT>::Ptr computeISSKeypoints(pcl::PointCloud<PointT>::Ptr cl
     // Set the number of prpcessing threads to use. 0 sets it to automatic.
     detector.setNumberOfThreads(2);
 
-   // detector.setNormalRadius (4 * resolution);
-   //detector.setBorderRadius (4 * resolution);
+    // detector.setNormalRadius (4 * resolution);
+    //detector.setBorderRadius (4 * resolution);
 
     detector.compute(*keypoints);
 
@@ -420,8 +421,8 @@ void align_icp(CorrespondenceResults *data){
 
     pcl::ScopeTime t("ICP");
 
-//    typedef pcl::registration::TransformationEstimationPointToPlane<PointT, PointT> PointToPlane;
-//    boost::shared_ptr<PointToPlane> point_to_plane(new PointToPlane);
+    //    typedef pcl::registration::TransformationEstimationPointToPlane<PointT, PointT> PointToPlane;
+    //    boost::shared_ptr<PointToPlane> point_to_plane(new PointToPlane);
 
     // downsample the input pointclouds
     pcl::PointCloud<PointT>::Ptr src_downsampled = downsample(data->model_cloud, 0.02);
@@ -597,41 +598,88 @@ pcl::PointCloud<PointT>::Ptr shrinkCloud(pcl::PointCloud<PointT>::Ptr cloud, pcl
     return shrinked_cloud;
 }
 
-pcl::PointCloud<PointT>::Ptr cropAndSegmentScene(pcl::PointCloud<PointT>::Ptr scene_cloud, pcl::PointCloud<PointT>::Ptr model_cloud){
+pcl::PointCloud<PointT>::Ptr cropAndSegmentScene(pcl::PointCloud<PointT>::Ptr scene_cloud, pcl::PointCloud<PointT>::Ptr model_cloud, bool shrink_hull, bool set3D){
 
     pcl::ScopeTime t("Hull");
 
     pcl::ConvexHull<PointT> hull;
     pcl::PointCloud<PointT>::Ptr surface_hull (new pcl::PointCloud<PointT>);
     hull.setInputCloud(model_cloud);
-    hull.setDimension(3);
-  // hull.setAlpha(3);
+    if(set3D) hull.setDimension(3);
+    else hull.setDimension(2);
+    // hull.setAlpha(3);
     std::vector<pcl::Vertices> polygons;
     hull.reconstruct(*surface_hull, polygons);
 
     std::cout << "Vertices : " << polygons.size() <<  std::endl;
     std::cout << "Hull Cloud : " << surface_hull->size() <<  std::endl;
 
-    pcl::PointCloud<PointT>::Ptr centroid_cloud = getCentroid(model_cloud);
-    pcl::PointCloud<PointT>::Ptr shrinked_hull = shrinkCloud(surface_hull, centroid_cloud, 0.015);
-  //  pcl::PointCloud<PointT>::Ptr shrinked_hull = surface_hull;
+    pclViewer3->addPointCloud (surface_hull, ColorHandlerT(surface_hull, 255.0, 255.0, 0.0), "hull");
+    pclViewer3->setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 2, "hull");
+
+//    pclViewer3->addPointCloud (scene_cloud, ColorHandlerT(scene_cloud, 255.0, 0.0, 0.0), "scene");
+//    pclViewer3->setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 1, "scene");
+
+    pcl::PointCloud<PointT>::Ptr projected_points(new pcl::PointCloud<PointT>);
+    if(!set3D){
+        // Find the coefficients of the hull plane and project points of the scene on it
+        pcl::ModelCoefficients::Ptr coefficients(new pcl::ModelCoefficients);
+        pcl::PointIndices::Ptr inlierIndices(new pcl::PointIndices);
+
+        // Find the plane coefficients from the model
+        pcl::SACSegmentation<PointT> segmentation;
+        segmentation.setInputCloud(surface_hull);
+        segmentation.setModelType(pcl::SACMODEL_PLANE);
+        segmentation.setMethodType(pcl::SAC_RANSAC);
+        segmentation.setDistanceThreshold(0.02);
+        segmentation.setOptimizeCoefficients(true);
+        segmentation.segment(*inlierIndices, *coefficients);
+
+        // Project Scene Cloud in 2D plane of the Hull
+        pcl::ProjectInliers<PointT> proj;
+        proj.setModelType (pcl::SACMODEL_PLANE);
+        proj.setInputCloud (scene_cloud);
+        proj.setModelCoefficients (coefficients);
+        proj.filter (*projected_points);
+
+        pclViewer3->addPointCloud (projected_points, ColorHandlerT(projected_points, 0.0, 255.0, 255.0), "projection");
+        pclViewer3->setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 1, "projection");
+    }
+
+    if(shrink_hull){
+        pcl::PointCloud<PointT>::Ptr centroid_cloud = getCentroid(model_cloud);
+        pcl::PointCloud<PointT>::Ptr shrinked_hull = shrinkCloud(surface_hull, centroid_cloud, 0.015);
+        surface_hull = shrinked_hull;
+
+        pclViewer3->addPointCloud (shrinked_hull, ColorHandlerT(shrinked_hull, 0.0, 255.0, 0.0), "shrinked_hull");
+        pclViewer3->setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 1, "shrinked_hull");
+    }
 
     pcl::PointCloud<PointT>::Ptr objects (new pcl::PointCloud<PointT>);
     pcl::CropHull<PointT> bb_filter2;
-    bb_filter2.setDim(3);
-    bb_filter2.setInputCloud(scene_cloud);
-    bb_filter2.setHullIndices(polygons);
-    bb_filter2.setHullCloud(shrinked_hull);
-    bb_filter2.filter(*objects);
 
-    pclViewer3->addPointCloud (surface_hull, ColorHandlerT(surface_hull, 0.0, 0.0, 255.0), "hull");
-    pclViewer3->setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 2, "hull");
+    if(set3D){
+        bb_filter2.setDim(3);
+        bb_filter2.setInputCloud(scene_cloud);
+        bb_filter2.setHullIndices(polygons);
+        bb_filter2.setHullCloud(surface_hull);
+        bb_filter2.filter(*objects);
+    }
+    else{
+        std::vector<int> indices;
+        bb_filter2.setDim(2);
+        bb_filter2.setInputCloud(projected_points);
+        bb_filter2.setHullIndices(polygons);
+        bb_filter2.setHullCloud(surface_hull);
+        bb_filter2.filter(indices);
 
-    pclViewer3->addPointCloud (shrinked_hull, ColorHandlerT(shrinked_hull, 0.0, 255.0, 0.0), "shrinked_hull");
-    pclViewer3->setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 2, "shrinked_hull");
+        for(int i=0; i < indices.size(); i++){
+            objects->push_back( scene_cloud->at( indices.at(i)) );
+        }
+    }
 
-    pclViewer3->addPointCloud (scene_cloud, ColorHandlerT(scene_cloud, 255.0, 0.0, 0.0), "scene");
-    pclViewer3->setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 1, "scene");
+    pclViewer3->addPointCloud (objects, ColorHandlerT(objects, 255.0, 0.0, 255.0), "scene_cropped");
+    pclViewer3->setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 2, "scene_cropped");
 
     return objects;
 }
@@ -646,9 +694,9 @@ pcl::PointCloud<PointT>::Ptr smoothPointCloud(pcl::PointCloud<pcl::PointXYZRGB>:
     mls2.setSearchRadius (0.04);
     mls2.setPolynomialFit (true);
     mls2.setPolynomialOrder (2);
-//    mls2.setUpsamplingMethod (pcl::MovingLeastSquares<pcl::PointXYZRGB, PointT>::SAMPLE_LOCAL_PLANE);
-//    mls2.setUpsamplingRadius (0.01);
-//    mls2.setUpsamplingStepSize (0.005);
+    //    mls2.setUpsamplingMethod (pcl::MovingLeastSquares<pcl::PointXYZRGB, PointT>::SAMPLE_LOCAL_PLANE);
+    //    mls2.setUpsamplingRadius (0.01);
+    //    mls2.setUpsamplingStepSize (0.005);
     mls2.process (*cloud_smoothed2);
 
     cloud_smoothed2 = downsample(cloud_smoothed2, 0.01);
@@ -659,17 +707,17 @@ pcl::PointCloud<PointT>::Ptr smoothPointCloud(pcl::PointCloud<pcl::PointXYZRGB>:
     cloud_translation(0,3) = 1; //x translation to compare with other mls
     pcl::transformPointCloud(*cloud_smoothed2, *cloud_smoothed2_translated, cloud_translation);
 
-    pclViewer4->addPointCloud (cloud, ColorHandlerRGB(cloud), "cloud");
-    pclViewer4->setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 1, "cloud");
+    //    pclViewer4->addPointCloud (cloud, ColorHandlerRGB(cloud), "cloud");
+    //    pclViewer4->setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 1, "cloud");
 
-    pclViewer4->addPointCloud (cloud_smoothed2_translated, ColorHandlerT(cloud_smoothed2_translated, 255.0, 0.0, 0.0), "smoothed2");
-    pclViewer4->setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 1, "smoothed2");
+    //    pclViewer4->addPointCloud (cloud_smoothed2_translated, ColorHandlerT(cloud_smoothed2_translated, 255.0, 0.0, 0.0), "smoothed2");
+    //    pclViewer4->setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 1, "smoothed2");
 
 
     return cloud_smoothed2;
 }
 
-void euclideanClusters(pcl::PointCloud<PointT>::Ptr cloud){
+pcl::PointCloud<PointT>::Ptr euclideanClusters(pcl::PointCloud<PointT>::Ptr cloud, double distance){
 
     pcl::ScopeTime t("Euclidean Clusters");
 
@@ -677,18 +725,21 @@ void euclideanClusters(pcl::PointCloud<PointT>::Ptr cloud){
 
     std::vector<pcl::PointIndices> cluster_indices;
     pcl::EuclideanClusterExtraction<PointT> ec;
-    ec.setClusterTolerance (0.04);
+    ec.setClusterTolerance (distance);
     ec.setMinClusterSize (20);
     ec.setMaxClusterSize (25000);
     ec.setSearchMethod (tree);
     ec.setInputCloud (cloud);
     ec.extract (cluster_indices);
 
-    pclViewer5->removeAllPointClouds();
-   // pclViewer->addPointCloud (cloud, ColorHandlerT(cloud, 0.0, 255.0, 0.0), "scene_filtered");
-   // pclViewer->setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 2, "scene_filtered");
+    // pclViewer5->removeAllPointClouds();
+    // pclViewer->addPointCloud (cloud, ColorHandlerT(cloud, 0.0, 255.0, 0.0), "scene_filtered");
+    // pclViewer->setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 2, "scene_filtered");
 
-  //  std::cout << "Number of clusters : " << cluster_indices.at(0) << std::endl;
+    //  std::cout << "Number of clusters : " << cluster_indices.at(0) << std::endl;
+
+    pcl::PointCloud<PointT>::Ptr return_cloud(new pcl::PointCloud<PointT>);
+
 
     for (int i=0; i < cluster_indices.size(); i++){
         pcl::PointIndices cloud_indices = cluster_indices.at(i);
@@ -700,19 +751,53 @@ void euclideanClusters(pcl::PointCloud<PointT>::Ptr cloud){
         cloud_cluster->height = 1;
         cloud_cluster->width = cloud_cluster->size();
 
+        *return_cloud += *cloud_cluster;
+
         pcl::visualization::PointCloudColorHandlerRandom<PointT> randColor(cloud_cluster);
         std::stringstream ss;
         ss << i;
         std::string ind = ss.str();
         std::string pc_name = "object_" + ind;
-        pclViewer5->addPointCloud<PointT>(cloud_cluster, randColor, pc_name);
-        pclViewer5->setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 3, pc_name);
+        //  pclViewer5->addPointCloud<PointT>(cloud_cluster, randColor, pc_name);
+        //  pclViewer5->setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 3, pc_name);
 
     }
 
-
-
+    return return_cloud;
 }
+
+
+pcl::PointCloud<PointT>::Ptr segmentPointsBelongingToModel(pcl::PointCloud<PointT>::Ptr remaining_points, pcl::PointCloud<PointT>::Ptr model, double distance_threshold){
+
+    pcl::ScopeTime t("Eliminating points near model");
+
+    pcl::PointCloud<PointT>::Ptr segmented_cloud(new pcl::PointCloud<PointT>);
+
+    double threshold_squared = distance_threshold * distance_threshold;
+
+
+    pcl::KdTreeFLANN<PointT>::Ptr kdtree (new pcl::KdTreeFLANN<PointT>);
+    kdtree->setInputCloud(model);
+    std::vector<int> index;
+    std::vector<float> sqr_distance;
+
+    for(int i=0; i < remaining_points->size(); i++){
+        kdtree->nearestKSearch(remaining_points->at(i), 1, index, sqr_distance);
+        if(sqr_distance.at(0) >= threshold_squared){
+            segmented_cloud->push_back(remaining_points->at(i));
+        }
+        //        cout << "neighbors: " << neighbors << endl;
+        //        cout << "index: " << index.at(0) << endl;
+        //        cout << "sqr_distance: " << sqr_distance.at(0) << endl;
+    }
+
+
+    // pclViewer5->addPointCloud (segmented_cloud, ColorHandlerT(segmented_cloud, 255.0, 255.0, 0.0), "segmented");
+    // pclViewer5->setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 3 , "segmented");
+
+    return segmented_cloud;
+}
+
 
 int main (int argc, char** argv){
 
@@ -723,7 +808,7 @@ int main (int argc, char** argv){
     pcl::PointCloud<pcl::PointXYZRGB>::Ptr in1_xyzrgb(new pcl::PointCloud<pcl::PointXYZRGB>);
     pcl::PointCloud<pcl::PointXYZRGB>::Ptr container_model_xyzrgb(new pcl::PointCloud<pcl::PointXYZRGB>);
 
-    pcl::io::loadPCDFile("../bmw_color_balls.pcd", *in1_xyzrgb);
+    pcl::io::loadPCDFile("../bmw_handle.pcd", *in1_xyzrgb);
     pcl::io::loadPCDFile("../bmw_container_segmented.pcd", *container_model_xyzrgb);
 
     initPCLViewer();
@@ -757,20 +842,37 @@ int main (int argc, char** argv){
     // Find Convex Hull of aligned model, shrink it and crop the points from the scene
     // belonging to the shrinked hull
     pcl::PointCloud<PointT>::Ptr scene_segmented(new pcl::PointCloud<PointT>);
-    scene_segmented = cropAndSegmentScene(best->scene_cloud, best->model_fine_aligned);
+    scene_segmented = cropAndSegmentScene(best->scene_cloud, best->model_fine_aligned, false, false);
 
-    // Smooth remaining points
-    pcl::PointCloud<pcl::PointXYZRGB>::Ptr scene_segmented_xyzrgb(new pcl::PointCloud<pcl::PointXYZRGB>);
-    pcl::PointCloud<PointT>::Ptr smoothed_cloud(new pcl::PointCloud<PointT>);
-    pcl::copyPointCloud(*scene_segmented, *scene_segmented_xyzrgb);
-    smoothed_cloud = smoothPointCloud(scene_segmented_xyzrgb);
+    //    // Smooth remaining points
+    //    pcl::PointCloud<pcl::PointXYZRGB>::Ptr scene_segmented_xyzrgb(new pcl::PointCloud<pcl::PointXYZRGB>);
+    //    pcl::PointCloud<PointT>::Ptr smoothed_cloud(new pcl::PointCloud<PointT>);
+    //    pcl::copyPointCloud(*scene_segmented, *scene_segmented_xyzrgb);
+    //    smoothed_cloud = smoothPointCloud(scene_segmented_xyzrgb);
 
-    euclideanClusters(smoothed_cloud);
+    // Find Clusters with euclidean clustering
+    //    pcl::PointCloud<PointT>::Ptr euclidean_cloud = euclideanClusters(scene_segmented);
     pclViewer5->addPointCloud (best->scene_cloud, ColorHandlerT(best->scene_cloud, 255.0, 0.0, 0.0), "scene");
-    pclViewer5->setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_OPACITY, 0.9, "scene");
+    pclViewer5->setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 1, "scene");
+    //    pclViewer5->addPointCloud (euclidean_cloud, ColorHandlerT(euclidean_cloud, 255.0, 0.0, 255.0), "euclidean1");
+    //    pclViewer5->setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 2 , "euclidean1");
+
+
+    // Eliminate remaining points if they are near the aligned model
+    pcl::PointCloud<PointT>::Ptr model_chopped = segmentPointsBelongingToModel(scene_segmented, best->model_fine_aligned, 0.01);
+
+
+    // Do another round of euclidean clustering
+    pcl::PointCloud<PointT>::Ptr euclidean_cloud = euclideanClusters(model_chopped, 0.02);
+    pclViewer5->addPointCloud (euclidean_cloud, ColorHandlerT(euclidean_cloud, 0.0, 255.0, 255.0), "euclidean");
+    pclViewer5->setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 3 , "euclidean");
+
+
+
 
     while (!pclViewer->wasStopped()) {
         pclViewer->spinOnce (100);
+        pclViewer5->spinOnce(100);
     }
     return 0;
 }
