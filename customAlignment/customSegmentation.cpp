@@ -498,13 +498,73 @@ void superVoxels_clustering(pcl::PointCloud<pcl::PointXYZRGBA>::Ptr cloud){
     // Initialize a map with supervoxel indices and their normals
     std::map<uint32_t, pcl::PointNormal> supervoxel_normals;
     for (std::map<uint32_t, pcl::Supervoxel<PointT>::Ptr>::iterator it=supervoxel_clusters.begin(); it!=supervoxel_clusters.end(); ++it){
-
-
+        pcl::PointNormal ptN;
+        it->second->getCentroidPointNormal(ptN);
+        cout << it->first << " , " << ptN << endl;
+        supervoxel_normals[it->first] = ptN;
     }
 
 
 
+    // Change the format of the adjacency map for easier calculation of mean shift
+    int id = -1;
+    std::vector<int> n_id;
+    std::map<int, std::vector<int> > adjacency_map;
+    for(std::multimap<uint32_t, uint32_t>::iterator it = supervoxel_adjacency.begin(); it != supervoxel_adjacency.end(); ++it){
+        cout << it->first << " , " << it->second << endl;
 
+        if(id < 0) id = it->first;
+
+        if(id != it->first){
+            adjacency_map[id] = n_id;
+            n_id.clear();
+            id = it->first;
+        }
+        n_id.push_back(it->second);
+    }
+
+
+    /// Starting Mean Shift Algorithm
+    double alpha = 10;
+    for(std::map<int, std::vector<int> >::iterator it = adjacency_map.begin(); it != adjacency_map.end(); ++it){
+        std::vector<int> indices = it->second;
+
+        // Print List
+        cout << it->first;
+        for(int i=0; i < indices.size(); i++){
+            cout << " , " << indices[i];
+        }
+        cout << endl;
+
+
+        double eta = 0;
+        pcl::PointNormal n_i = supervoxel_normals[it->first];
+        pcl::PointNormal calculated_normal = n_i;
+        calculated_normal.normal_x = 0;
+        calculated_normal.normal_y = 0;
+        calculated_normal.normal_z = 0;
+
+        cout << n_i << endl;
+        for(int i=0; i < indices.size(); i++){
+            pcl::PointNormal n_j = supervoxel_normals[indices.at(i)];
+            cout << n_j << endl;
+            double dot_product = (n_i.normal_x * n_j.normal_x) + (n_i.normal_y * n_j.normal_y) + (n_i.normal_z * n_j.normal_z);
+            double value = exp( -alpha * acos(dot_product) );
+            calculated_normal.normal_x += value * n_j.normal_x;
+            calculated_normal.normal_y += value * n_j.normal_y;
+            calculated_normal.normal_z += value * n_j.normal_z;
+            eta += value;
+        }
+
+        calculated_normal.normal_x = (1/eta) * calculated_normal.normal_x;
+        calculated_normal.normal_y = (1/eta) * calculated_normal.normal_y;
+        calculated_normal.normal_z = (1/eta) * calculated_normal.normal_z;
+
+        cout << "Eta : " << eta << endl;
+        cout << "New Normal : " << calculated_normal << endl;
+
+
+    }
 
 }
 
@@ -512,13 +572,13 @@ pcl::PointCloud<PointT>::Ptr smoothPointCloud(pcl::PointCloud<pcl::PointXYZRGB>:
 
     pcl::ScopeTime t("Moving Least Squares");
 
-//    pcl::MovingLeastSquares<pcl::PointXYZRGB, pcl::PointXYZRGB> mls;
-//    pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud_smoothed(new pcl::PointCloud<pcl::PointXYZRGB>);
-//    mls.setInputCloud (cloud);
-//    mls.setSearchRadius (0.04);
-//    mls.setPolynomialFit (true);
-//    mls.setPolynomialOrder (2);
-//    mls.process (*cloud_smoothed);
+    //    pcl::MovingLeastSquares<pcl::PointXYZRGB, pcl::PointXYZRGB> mls;
+    //    pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud_smoothed(new pcl::PointCloud<pcl::PointXYZRGB>);
+    //    mls.setInputCloud (cloud);
+    //    mls.setSearchRadius (0.04);
+    //    mls.setPolynomialFit (true);
+    //    mls.setPolynomialOrder (2);
+    //    mls.process (*cloud_smoothed);
 
 
     pcl::PointCloud<PointT>::Ptr cloud_smoothed2(new pcl::PointCloud<PointT>);
@@ -532,30 +592,30 @@ pcl::PointCloud<PointT>::Ptr smoothPointCloud(pcl::PointCloud<pcl::PointXYZRGB>:
     //    mls2.setUpsamplingRadius (0.05);
     //    mls2.setUpsamplingStepSize (0.005);
 
-//    mls2.setUpsamplingMethod (pcl::MovingLeastSquares<pcl::PointXYZRGB, PointT>::VOXEL_GRID_DILATION);
-//    mls2.setDilationVoxelSize(0.005);
-//    mls2.setDilationIterations(1);
+    //    mls2.setUpsamplingMethod (pcl::MovingLeastSquares<pcl::PointXYZRGB, PointT>::VOXEL_GRID_DILATION);
+    //    mls2.setDilationVoxelSize(0.005);
+    //    mls2.setDilationIterations(1);
 
-//     mls2.setUpsamplingMethod (pcl::MovingLeastSquares<pcl::PointXYZRGB, PointT>::RANDOM_UNIFORM_DENSITY);
-//     mls2.setPointDensity(100);
+    //     mls2.setUpsamplingMethod (pcl::MovingLeastSquares<pcl::PointXYZRGB, PointT>::RANDOM_UNIFORM_DENSITY);
+    //     mls2.setPointDensity(100);
 
     mls2.process (*cloud_smoothed2);
 
     //cloud_smoothed2 = downsample(cloud_smoothed2, 0.01);
 
 
-//    // For VOXEL_GRID_DILATION only
-//    pcl::PointCloud<PointT>::Ptr cloud_smoothed3(new pcl::PointCloud<PointT>);
-//    for(int i=0; i<cloud_smoothed2->size(); i++){
-//        PointT pt = cloud_smoothed2->at(i);
-//        if(pt.x > -5 && pt.x < 5 && pt.y > -5 && pt.y < 5 && pt.z > -5 && pt.z < 5){
-//        std::cout << "X : " << cloud_smoothed2->at(i).x << std::endl;
-//        std::cout << "Y : " << cloud_smoothed2->at(i).y << std::endl;
-//        std::cout << "Z : " << cloud_smoothed2->at(i).z << std::endl;
-//            cloud_smoothed3->push_back(cloud_smoothed2->at(i));
-//        }
-//    }
-//    cloud_smoothed2 = cloud_smoothed3;
+    //    // For VOXEL_GRID_DILATION only
+    //    pcl::PointCloud<PointT>::Ptr cloud_smoothed3(new pcl::PointCloud<PointT>);
+    //    for(int i=0; i<cloud_smoothed2->size(); i++){
+    //        PointT pt = cloud_smoothed2->at(i);
+    //        if(pt.x > -5 && pt.x < 5 && pt.y > -5 && pt.y < 5 && pt.z > -5 && pt.z < 5){
+    //        std::cout << "X : " << cloud_smoothed2->at(i).x << std::endl;
+    //        std::cout << "Y : " << cloud_smoothed2->at(i).y << std::endl;
+    //        std::cout << "Z : " << cloud_smoothed2->at(i).z << std::endl;
+    //            cloud_smoothed3->push_back(cloud_smoothed2->at(i));
+    //        }
+    //    }
+    //    cloud_smoothed2 = cloud_smoothed3;
 
 
     pcl::PointCloud<PointT>::Ptr cloud_smoothed3_translated(new pcl::PointCloud<PointT>);
@@ -601,7 +661,7 @@ void euclideanClusters(pcl::PointCloud<PointT>::Ptr cloud){
     pclViewer->addPointCloud (cloud, ColorHandlerT(cloud, 0.0, 255.0, 0.0), "scene_filtered");
     pclViewer->setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 2, "scene_filtered");
 
-  //  std::cout << "Number of clusters : " << cluster_indices.at(0) << std::endl;
+    //  std::cout << "Number of clusters : " << cluster_indices.at(0) << std::endl;
 
     for (int i=0; i < cluster_indices.size(); i++){
         pcl::PointIndices cloud_indices = cluster_indices.at(i);
@@ -668,42 +728,42 @@ int main (int argc, char** argv){
     pcl::PointCloud<PointT>::Ptr model_cloud(new pcl::PointCloud<PointT>);
 
     pcl::io::loadPCDFile("../bmw_clutter_remaining.pcd", *scene_cloud);
-//    pcl::io::loadPCDFile("../customAlignment_fine.pcd", *model_cloud);
+    //    pcl::io::loadPCDFile("../customAlignment_fine.pcd", *model_cloud);
 
     initPCLViewer();
 
-//    pcl::PointCloud<PointT>::Ptr scene_segmented(new pcl::PointCloud<PointT>);
-//    scene_segmented = cropAndSegmentScene(scene_cloud, model_cloud);
+    //    pcl::PointCloud<PointT>::Ptr scene_segmented(new pcl::PointCloud<PointT>);
+    //    scene_segmented = cropAndSegmentScene(scene_cloud, model_cloud);
 
-//    // Smooth remaining points
-//    pcl::PointCloud<pcl::PointXYZRGB>::Ptr scene_segmented_xyzrgb(new pcl::PointCloud<pcl::PointXYZRGB>);
-//    pcl::PointCloud<PointT>::Ptr smoothed_cloud(new pcl::PointCloud<PointT>);
-//    pcl::copyPointCloud(*scene_segmented, *scene_segmented_xyzrgb);
-//    smoothed_cloud = smoothPointCloud(scene_segmented_xyzrgb);
+    //    // Smooth remaining points
+    //    pcl::PointCloud<pcl::PointXYZRGB>::Ptr scene_segmented_xyzrgb(new pcl::PointCloud<pcl::PointXYZRGB>);
+    //    pcl::PointCloud<PointT>::Ptr smoothed_cloud(new pcl::PointCloud<PointT>);
+    //    pcl::copyPointCloud(*scene_segmented, *scene_segmented_xyzrgb);
+    //    smoothed_cloud = smoothPointCloud(scene_segmented_xyzrgb);
 
-   // pcl::io::savePCDFileASCII(std::string("../toSegment.pcd"), *smoothed_cloud);
+    // pcl::io::savePCDFileASCII(std::string("../toSegment.pcd"), *smoothed_cloud);
 
-   // boost::thread regionThread(region_growing_rgb_thread, smoothed_cloud);
+    // boost::thread regionThread(region_growing_rgb_thread, smoothed_cloud);
 
-   // regionGrowing(smoothed_cloud);
-//    euclideanClusters(smoothed_cloud);
-//  //  pclViewer->removeAllPointClouds();
-//    pclViewer->addPointCloud (scene_cloud, ColorHandlerT(scene_cloud, 255.0, 0.0, 0.0), "scene");
-//    pclViewer->setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_OPACITY, 0.9, "scene");
+    // regionGrowing(smoothed_cloud);
+    //    euclideanClusters(smoothed_cloud);
+    //  //  pclViewer->removeAllPointClouds();
+    //    pclViewer->addPointCloud (scene_cloud, ColorHandlerT(scene_cloud, 255.0, 0.0, 0.0), "scene");
+    //    pclViewer->setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_OPACITY, 0.9, "scene");
 
 
     // SuperVoxels
     pcl::PointCloud<pcl::PointXYZRGBA>::Ptr scene_cloud_xyzrgb(new pcl::PointCloud<pcl::PointXYZRGBA>);
     pcl::copyPointCloud(*scene_cloud, *scene_cloud_xyzrgb);
-    superVoxels(scene_cloud_xyzrgb);
+    superVoxels_clustering(scene_cloud_xyzrgb);
 
 
     // Find Primitives
-//    findCylinderPrimitive(scene_segmented);
+    //    findCylinderPrimitive(scene_segmented);
 
 
 
-    while (!pclViewer->wasStopped()) {
+    while (!pclViewer3->wasStopped()) {
         pclViewer->spinOnce (100);
         pclViewer2->spinOnce (100);
         pclViewer3->spinOnce (100);
