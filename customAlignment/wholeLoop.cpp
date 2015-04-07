@@ -88,6 +88,11 @@ struct CorrespondenceResults {
 } ;
 
 std::vector<CorrespondenceResults*> _AlignmentResults;
+std::vector<pcl::PointCloud<PointT>::Ptr > segmented_clouds;
+
+int l_count = 0;
+int cloud_index = 0;
+void keyboardEventOccurred (const pcl::visualization::KeyboardEvent &event, void* viewer_void);
 
 void initPCLViewer(){
     //PCL Viewer
@@ -123,9 +128,32 @@ void initPCLViewer(){
     pclViewer5->setBackgroundColor (0, 0, 0);
     pclViewer5->initCameraParameters ();
     pclViewer5->setCameraPosition(0,0,0,0,0,1,0,-1,0);
+    pclViewer5->registerKeyboardCallback (keyboardEventOccurred, (void*)&pclViewer5);
     vtkSmartPointer<vtkRenderWindow> renderWindow5 = pclViewer5->getRenderWindow();
     renderWindow5->SetSize(800,450);
     renderWindow5->Render();
+
+}
+
+void keyboardEventOccurred (const pcl::visualization::KeyboardEvent &event, void* viewer_void)
+{
+    l_count = l_count + 1;
+    if(l_count < 2){
+        boost::shared_ptr<pcl::visualization::PCLVisualizer> viewer = *static_cast<boost::shared_ptr<pcl::visualization::PCLVisualizer> *> (viewer_void);
+        if (event.getKeySym () == "s"){
+
+            viewer->removePointCloud("seg");
+            viewer->addPointCloud (segmented_clouds.at(cloud_index), ColorHandlerT(segmented_clouds.at(cloud_index), 255.0, 255.0, 0.0), "seg");
+            viewer->setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 3, "seg");
+
+            cloud_index++;
+            if(cloud_index >= segmented_clouds.size()) cloud_index = 0;
+
+        }
+    }
+    else{
+        l_count = 0;
+    }
 
 }
 
@@ -367,7 +395,7 @@ void coarse_alignment(CorrespondenceResults *data){
     //corr_rejector.setInputCorrespondences(correspondences);
     corr_rejector.setInputTarget(data->scene_keypoints);
     corr_rejector.setMaximumIterations(150);
-    corr_rejector.setInlierThreshold(0.05);
+    corr_rejector.setInlierThreshold(0.03);
     corr_rejector.getRemainingCorrespondences(correspondences_median, data->correspondences);
 
     data->coarse_transformation  = corr_rejector.getBestTransformation();
@@ -730,7 +758,7 @@ pcl::PointCloud<PointT>::Ptr euclideanClusters(pcl::PointCloud<PointT>::Ptr clou
     std::vector<pcl::PointIndices> cluster_indices;
     pcl::EuclideanClusterExtraction<PointT> ec;
     ec.setClusterTolerance (distance);
-    ec.setMinClusterSize (20);
+    ec.setMinClusterSize (50);
     ec.setMaxClusterSize (25000);
     ec.setSearchMethod (tree);
     ec.setInputCloud (cloud);
@@ -756,6 +784,8 @@ pcl::PointCloud<PointT>::Ptr euclideanClusters(pcl::PointCloud<PointT>::Ptr clou
         cloud_cluster->width = cloud_cluster->size();
 
         *return_cloud += *cloud_cluster;
+
+        segmented_clouds.push_back(cloud_cluster);
 
         pcl::visualization::PointCloudColorHandlerRandom<PointT> randColor(cloud_cluster);
         std::stringstream ss;
@@ -925,7 +955,7 @@ int main (int argc, char** argv){
     pcl::PointCloud<pcl::PointXYZRGB>::Ptr in1_xyzrgb(new pcl::PointCloud<pcl::PointXYZRGB>);
     pcl::PointCloud<pcl::PointXYZRGB>::Ptr container_model_xyzrgb(new pcl::PointCloud<pcl::PointXYZRGB>);
 
-    pcl::io::loadPCDFile("../bmw_clutter.pcd", *in1_xyzrgb);
+    pcl::io::loadPCDFile("../bmw_setup2.pcd", *in1_xyzrgb);
     pcl::io::loadPCDFile("../bmw_container_segmented.pcd", *container_model_xyzrgb);
 
     initPCLViewer();
@@ -980,7 +1010,7 @@ int main (int argc, char** argv){
 
 
     // Do another round of euclidean clustering
-    pcl::PointCloud<PointT>::Ptr euclidean_cloud = euclideanClusters(model_chopped, 0.02);
+    pcl::PointCloud<PointT>::Ptr euclidean_cloud = euclideanClusters(model_chopped, 0.015);
     // pclViewer5->addPointCloud (euclidean_cloud, ColorHandlerT(euclidean_cloud, 0.0, 255.0, 255.0), "euclidean");
     // pclViewer5->setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 3 , "euclidean");
 

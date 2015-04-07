@@ -20,3 +20,6 @@ target_link_libraries (wholeLoop ${PCL_LIBRARIES})
 add_executable (wholeLoop_workingExample wholeLoop_workingExample.cpp)
 target_link_libraries (wholeLoop_workingExample ${PCL_LIBRARIES})
 
+add_executable (demo demo.cpp)
+target_link_libraries (demo ${PCL_LIBRARIES})
+
