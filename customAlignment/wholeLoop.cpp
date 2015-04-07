@@ -758,7 +758,7 @@ pcl::PointCloud<PointT>::Ptr euclideanClusters(pcl::PointCloud<PointT>::Ptr clou
     std::vector<pcl::PointIndices> cluster_indices;
     pcl::EuclideanClusterExtraction<PointT> ec;
     ec.setClusterTolerance (distance);
-    ec.setMinClusterSize (50);
+    ec.setMinClusterSize (20);
     ec.setMaxClusterSize (25000);
     ec.setSearchMethod (tree);
     ec.setInputCloud (cloud);
@@ -955,7 +955,7 @@ int main (int argc, char** argv){
     pcl::PointCloud<pcl::PointXYZRGB>::Ptr in1_xyzrgb(new pcl::PointCloud<pcl::PointXYZRGB>);
     pcl::PointCloud<pcl::PointXYZRGB>::Ptr container_model_xyzrgb(new pcl::PointCloud<pcl::PointXYZRGB>);
 
-    pcl::io::loadPCDFile("../bmw_setup2.pcd", *in1_xyzrgb);
+    pcl::io::loadPCDFile("../bmw_clutter.pcd", *in1_xyzrgb);
     pcl::io::loadPCDFile("../bmw_container_segmented.pcd", *container_model_xyzrgb);
 
     initPCLViewer();
@@ -1014,7 +1014,7 @@ int main (int argc, char** argv){
     // pclViewer5->addPointCloud (euclidean_cloud, ColorHandlerT(euclidean_cloud, 0.0, 255.0, 255.0), "euclidean");
     // pclViewer5->setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 3 , "euclidean");
 
-    pcl::io::savePCDFileBinary("../bmw_clutter_remaining.pcd", *euclidean_cloud);
+  //  pcl::io::savePCDFileBinary("../bmw_clutter_remaining.pcd", *euclidean_cloud);
 
     //boost::thread regionThread(region_growing_rgb_thread, euclidean_cloud);
 
