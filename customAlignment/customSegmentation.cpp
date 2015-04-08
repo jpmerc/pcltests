@@ -65,6 +65,8 @@ double _regionColorThreshold = 3.0;
 double _minClusterSize = 1000;
 
 void region_growing_rgb(pcl::PointCloud<PointT>::Ptr cloud);
+void printSuperVoxels(std::map<int, pcl::Supervoxel<pcl::PointXYZRGBA>::Ptr> *voxels, std::multimap<int, int> *adjacency);
+void printMap(std::map<int, std::vector<int> > *myMap);
 
 void initPCLViewer(){
     //PCL Viewer
@@ -504,8 +506,9 @@ void superVoxels_clustering(pcl::PointCloud<pcl::PointXYZRGBA>::Ptr cloud){
 
     // Voxel Cloud Colors
     PointCloudT::Ptr colored_cloud = super.getColoredVoxelCloud ();
+    cout << "Colored Cloud Size : " << colored_cloud->size() << endl;
     pclViewer3->addPointCloud (colored_cloud, "colored voxels");
-    pclViewer3->setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_OPACITY, 1, "colored voxels");
+    pclViewer3->setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_OPACITY, 2, "colored voxels");
 
     // Voxel Graph
     std::multimap<uint32_t, uint32_t> supervoxel_adjacency;
@@ -516,10 +519,22 @@ void superVoxels_clustering(pcl::PointCloud<pcl::PointXYZRGBA>::Ptr cloud){
     for (std::map<uint32_t, pcl::Supervoxel<PointT>::Ptr>::iterator it=supervoxel_clusters.begin(); it!=supervoxel_clusters.end(); ++it){
         pcl::PointNormal ptN;
         it->second->getCentroidPointNormal(ptN);
-        cout << it->first << " , " << ptN << endl;
+       // cout << it->first << " , " << ptN << endl;
+        cout << it->first << endl;
         supervoxel_normals[it->first] = ptN;
     }
 
+
+
+    /// DEBUG
+    int size = 0;
+    cout << "[" ;
+    for (std::map<uint32_t, pcl::Supervoxel<PointT>::Ptr>::iterator it=supervoxel_clusters.begin(); it!=supervoxel_clusters.end(); ++it){
+        size += it->second->voxels_->size();
+        cout << it->first << " " << it->second->voxels_->size() << "; ";
+    }
+    cout << "]" << endl;
+    cout << "Total Number of points : " << size << endl;
 
 
     // Change the format of the adjacency map for easier calculation of mean shift
@@ -565,7 +580,7 @@ void superVoxels_clustering(pcl::PointCloud<pcl::PointXYZRGBA>::Ptr cloud){
                 calculated_normal.normal_y += value * n_j.normal_y;
                 calculated_normal.normal_z += value * n_j.normal_z;
                 eta += value;
-                // cout << "Similarity (" << it->first << ", " << indices.at(i) << ") = " << cosine_similarity(&n_i, &n_j) << std::endl;
+                cout << "Similarity (" << it->first << ", " << indices.at(i) << ") = " << cosine_similarity(&n_i, &n_j) << std::endl;
             }
 
             calculated_normal.normal_x = (1/eta) * calculated_normal.normal_x;
@@ -619,7 +634,7 @@ void superVoxels_clustering(pcl::PointCloud<pcl::PointXYZRGBA>::Ptr cloud){
 
                 if(add){
                     merge_map.insert( std::pair<int,int>(indices.at(i), index));
-          //          cout << indices.at(i) << " -> " << index << endl;
+                    //          cout << indices.at(i) << " -> " << index << endl;
                 }
 
             }
@@ -648,7 +663,7 @@ void superVoxels_clustering(pcl::PointCloud<pcl::PointXYZRGBA>::Ptr cloud){
 
                 if(add){
                     new_adjacency_map.insert(std::pair<int,int>(index, j_index));
-             //       cout << "ADJ : " << index << " -> " << j_index << endl;
+                    //       cout << "ADJ : " << index << " -> " << j_index << endl;
                 }
             }
         }
@@ -660,7 +675,7 @@ void superVoxels_clustering(pcl::PointCloud<pcl::PointXYZRGBA>::Ptr cloud){
         int key = it->first;
         int value = it->second;
 
-      //  cout << "(" << key << ", " << value << ")" << endl;
+        //  cout << "(" << key << ", " << value << ")" << endl;
 
         bool erase = false;
         if(merge_map.count(value) > 0){
@@ -681,7 +696,7 @@ void superVoxels_clustering(pcl::PointCloud<pcl::PointXYZRGBA>::Ptr cloud){
             }
 
         }
-       // cout << "(" << key << ", " <<  it->second << ")" << endl;
+        // cout << "(" << key << ", " <<  it->second << ")" << endl;
     }
 
     cout << "------------- New Adjacency Map-------------" << endl;
@@ -692,45 +707,211 @@ void superVoxels_clustering(pcl::PointCloud<pcl::PointXYZRGBA>::Ptr cloud){
         cout << "(" << key << ", " << value << ")" << endl;
     }
 
+    /// Simplify the merge map
     cout << "------------- Merge Map -------------" << endl;
+    int index = 1;
+    std::map<int, std::vector<int> > simple_merge_map;
     for(std::multimap<int, int>::iterator it = merge_map.begin(); it != merge_map.end(); ++it){
         int key = it->first;
         int value = it->second;
+
+        bool found = false;
+
+        if(simple_merge_map.size() <= 0){
+            std::vector<int> v;
+            v.push_back(key);
+            v.push_back(value);
+            simple_merge_map[index] = v;
+            index++;
+            continue;
+        }
+
+        if(simple_merge_map.size() > 0){
+            for(std::map<int, std::vector<int> >::iterator it2 = simple_merge_map.begin(); it2 != simple_merge_map.end(); ++it2){
+                std::vector<int> v = it2->second;
+                for(int i=0; i < v.size(); i++){
+                    int id = v.at(i);
+                    if(key == id) {
+                        v.push_back(value);
+                        it2->second = v;
+                        found = true;
+                        break;
+                    }
+                    else if(value == id) {
+                        v.push_back(key);
+                        it2->second = v;
+                        found = true;
+                        break;
+                    }
+                }
+                if(found) break;
+            }
+        }
+
+        if(!found){
+            std::vector<int> v;
+            v.push_back(key);
+            v.push_back(value);
+            simple_merge_map[index] = v;
+            index++;
+            continue;
+        }
+
 
         cout << "(" << key << ", " << value << ")" << endl;
     }
 
+    printMap(&simple_merge_map);
 
 
+
+    ///BUGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGG BELOW
 
     /// Build a map of the newly merged Supervoxels
+    cout << "Merging...!" << endl;
+    int size_merge = 0;
     std::map <int, pcl::Supervoxel<PointT>::Ptr > merged_supervoxel_clusters;
-    for(std::multimap<int, int>::iterator it = merge_map.begin(); it != merge_map.end(); ++it){
+
+    for(std::map<int, std::vector<int> >::iterator it = simple_merge_map.begin(); it != simple_merge_map.end(); ++it){
         int key = it->first;
-        int value = it->second;
+        std::vector<int> v = it->second;
 
-        if(merged_supervoxel_clusters.count(value) > 0){
-            // value index aleardy loaded, only need to add the key supervoxel to it
-            pcl::Supervoxel<PointT>::Ptr sVoxel = merged_supervoxel_clusters[value];
+        pcl::Supervoxel<PointT>::Ptr merged_sVoxel(new pcl::Supervoxel<PointT>);
 
+        for(int i=0; i < v.size(); i++){
+            int id = v.at(i);
+            pcl::Supervoxel<PointT>::Ptr sVoxel = supervoxel_clusters[id];
+            *(merged_sVoxel->voxels_)  += *(sVoxel->voxels_);
+            *(merged_sVoxel->normals_) += *(sVoxel->normals_);
         }
 
-        else{
+        // Set Centroid of the merged Supervoxel
+        Eigen::Vector4f centroid;
+        pcl::compute3DCentroid<PointT>(*(merged_sVoxel->voxels_), centroid);
+        pcl::PointXYZRGBA cent;
+        cent.x = centroid[0];
+        cent.y = centroid[1];
+        cent.z = centroid[2];
+        merged_sVoxel->centroid_ = cent;
 
+        // Set Normal of the merged Supervoxel
+        Eigen::Vector4f vNormal = Eigen::Vector4f::Zero();
+        float curvature = 0;
+        pcl::computePointNormal(*(merged_sVoxel->voxels_), vNormal, curvature);
+        vNormal[3] = 0.0;
+        vNormal.normalize();
+        pcl::Normal norm;
+        norm.normal_x = vNormal[0];
+        norm.normal_y = vNormal[1];
+        norm.normal_z = vNormal[2];
+        norm.curvature = curvature;
+        merged_sVoxel->normal_ = norm;
 
-        }
-
-
-
-
+        merged_supervoxel_clusters[key] = merged_sVoxel;
     }
 
 
 
+//    for(std::multimap<int, int>::iterator it = merge_map.begin(); it != merge_map.end(); ++it){
+//        int key = it->first;
+//        int value = it->second;
+
+//        pcl::Supervoxel<PointT>::Ptr sVoxel1(new pcl::Supervoxel<PointT>);
+//        pcl::Supervoxel<PointT>::Ptr sVoxel2 = supervoxel_clusters[key];
+
+//        if(merged_supervoxel_clusters.count(value) > 0){
+//            sVoxel1 = merged_supervoxel_clusters[value];
+//        }
+
+//        else{
+//            sVoxel1 = supervoxel_clusters[value];
+//            cout << value << endl;
+//        }
+
+//        cout << key << endl;
+//        pcl::Supervoxel<PointT>::Ptr merged_sVoxel(new pcl::Supervoxel<PointT>);
+//        *(merged_sVoxel->voxels_)  = *(sVoxel1->voxels_) + *(sVoxel2->voxels_);
+//        *(merged_sVoxel->normals_) = *(sVoxel1->normals_) + *(sVoxel2->normals_);
+
+//        merged_supervoxel_clusters[value] = merged_sVoxel;
+//    }
 
 
 
+//    for(std::map<int, pcl::Supervoxel<PointT>::Ptr >::iterator it = merged_supervoxel_clusters.begin(); it != merged_supervoxel_clusters.end(); ++it){
+//        int key = it->first;
+//        pcl::Supervoxel<PointT>::Ptr super_voxel(new pcl::Supervoxel<PointT>);
+//        super_voxel = it->second;
 
+//        // Set Centroid of the merged Supervoxel
+//        Eigen::Vector4f centroid;
+//        pcl::compute3DCentroid<PointT>(*(super_voxel->voxels_), centroid);
+//        pcl::PointXYZRGBA cent;
+//        cent.x = centroid[0];
+//        cent.y = centroid[1];
+//        cent.z = centroid[2];
+//        super_voxel->centroid_ = cent;
+
+//        // Set Normal of the merged Supervoxel
+//        Eigen::Vector4f vNormal = Eigen::Vector4f::Zero();
+//        float curvature = 0;
+//        pcl::computePointNormal(*(super_voxel->voxels_), vNormal, curvature);
+//        vNormal[3] = 0.0;
+//        vNormal.normalize();
+//        pcl::Normal norm;
+//        norm.normal_x = vNormal[0];
+//        norm.normal_y = vNormal[1];
+//        norm.normal_z = vNormal[2];
+//        norm.curvature = curvature;
+//        super_voxel->normal_ = norm;
+
+//        // Replace the SuperVoxel with the one with normal and centroid
+//        it->second = super_voxel;
+//    }
+
+    printSuperVoxels(&merged_supervoxel_clusters, &new_adjacency_map);
+
+}
+
+
+void printSuperVoxels(std::map<int, pcl::Supervoxel<pcl::PointXYZRGBA>::Ptr> *voxels, std::multimap<int, int> *adjacency){
+
+
+    // Print Facets
+    int i = 0;
+    int size = 0;
+    for(std::map<int, pcl::Supervoxel<pcl::PointXYZRGBA>::Ptr >::iterator it = voxels->begin(); it != voxels->end(); ++it){
+        pcl::PointCloud<pcl::PointXYZRGBA>::Ptr pc = it->second->voxels_;
+        cout << "PC Size (" << it->first << ") : " << pc->size() << endl;
+        size += pc->size();
+        pcl::visualization::PointCloudColorHandlerRandom<pcl::PointXYZRGBA> randColor(pc);
+        std::stringstream ss;
+        ss << i;
+        std::string ind = ss.str();
+        std::string pc_name = "object_" + ind;
+        pclViewer2->addPointCloud<pcl::PointXYZRGBA>(pc,randColor,pc_name);
+        pclViewer2->setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 2, pc_name);
+        i++;
+    }
+    cout << "Total Number of points : " << size << endl;
+
+}
+
+void printMap(std::map<int, std::vector<int> > *myMap){
+
+    cout << "------My Map--------" << endl;
+    for(std::map<int, std::vector<int> >::iterator it = myMap->begin(); it != myMap->end(); ++it){
+        int key = it->first;
+
+        //cout << key << ", " ;
+        std::vector<int> v = it->second;
+        for(int i=0; i < v.size(); i++){
+            cout << v.at(i) << ", ";
+        }
+        cout << endl;
+    }
+
+    cout << "---------------------" << endl;
 }
 
 pcl::PointCloud<PointT>::Ptr smoothPointCloud(pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud){
