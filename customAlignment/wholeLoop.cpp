@@ -1006,7 +1006,7 @@ int main (int argc, char** argv){
 
 
     // Eliminate remaining points if they are near the aligned model
-    pcl::PointCloud<PointT>::Ptr model_chopped = segmentPointsBelongingToModel(scene_segmented, best->model_fine_aligned, 0.01);
+    pcl::PointCloud<PointT>::Ptr model_chopped = segmentPointsBelongingToModel(scene_segmented, best->model_fine_aligned, 0.007);
 
 
     // Do another round of euclidean clustering
@@ -1014,7 +1014,7 @@ int main (int argc, char** argv){
     // pclViewer5->addPointCloud (euclidean_cloud, ColorHandlerT(euclidean_cloud, 0.0, 255.0, 255.0), "euclidean");
     // pclViewer5->setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 3 , "euclidean");
 
-  //  pcl::io::savePCDFileBinary("../bmw_clutter_remaining.pcd", *euclidean_cloud);
+    pcl::io::savePCDFileBinary("../bmw_clutter_remaining.pcd", *euclidean_cloud);
 
     //boost::thread regionThread(region_growing_rgb_thread, euclidean_cloud);
 

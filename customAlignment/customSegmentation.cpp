@@ -519,8 +519,8 @@ void superVoxels_clustering(pcl::PointCloud<pcl::PointXYZRGBA>::Ptr cloud){
     for (std::map<uint32_t, pcl::Supervoxel<PointT>::Ptr>::iterator it=supervoxel_clusters.begin(); it!=supervoxel_clusters.end(); ++it){
         pcl::PointNormal ptN;
         it->second->getCentroidPointNormal(ptN);
-        // cout << it->first << " , " << ptN << endl;
-        cout << it->first << endl;
+        cout << it->first << " , " << ptN << endl;
+        //cout << it->first << endl;
         supervoxel_normals[it->first] = ptN;
     }
 
@@ -558,7 +558,7 @@ void superVoxels_clustering(pcl::PointCloud<pcl::PointXYZRGBA>::Ptr cloud){
     /// Starting Mean Shift Algorithm
     double alpha = 10;
     // Mean shift iterations for calculating new normals from neighborhood
-    for(int mean_shift_iterations = 0; mean_shift_iterations < 4; mean_shift_iterations++){
+    for(int mean_shift_iterations = 0; mean_shift_iterations < 10; mean_shift_iterations++){
         // Loop on supervoxels
         for(std::map<int, std::vector<int> >::iterator it = adjacency_map.begin(); it != adjacency_map.end(); ++it){
             std::vector<int> indices = it->second;
@@ -570,17 +570,25 @@ void superVoxels_clustering(pcl::PointCloud<pcl::PointXYZRGBA>::Ptr cloud){
             calculated_normal.normal_y = 0;
             calculated_normal.normal_z = 0;
 
-            // cout << n_i << endl;
+            cout << n_i << endl;
             for(int i=0; i < indices.size(); i++){
                 pcl::PointNormal n_j = supervoxel_normals[indices.at(i)];
-                // cout << n_j << endl;
+                 cout << n_j << endl;
                 double dot_product = (n_i.normal_x * n_j.normal_x) + (n_i.normal_y * n_j.normal_y) + (n_i.normal_z * n_j.normal_z);
-                double value = exp( -alpha * acos(dot_product) );
+                cout << "Dot : " << dot_product << endl;
+                double value = 0;
+                if(dot_product >= 1.0){
+                    value = 1;
+                }
+                else {
+                    value = exp( -alpha * acos(dot_product) );
+                }
+                cout << "Value : " << value << endl;
                 calculated_normal.normal_x += (value * n_j.normal_x);
                 calculated_normal.normal_y += (value * n_j.normal_y);
                 calculated_normal.normal_z += (value * n_j.normal_z);
                 eta += value;
-                cout << "Similarity (" << it->first << ", " << indices.at(i) << ") = " << cosine_similarity(&n_i, &n_j) << std::endl;
+                //cout << "Similarity (" << it->first << ", " << indices.at(i) << ") = " << cosine_similarity(&n_i, &n_j) << std::endl;
             }
 
             calculated_normal.normal_x = (1/eta) * calculated_normal.normal_x;
@@ -589,8 +597,8 @@ void superVoxels_clustering(pcl::PointCloud<pcl::PointXYZRGBA>::Ptr cloud){
 
             supervoxel_normals[it->first] = calculated_normal;
 
-            // cout << "Eta : " << eta << endl;
-            // cout << "New Normal : " << calculated_normal << endl;
+            cout << "Eta : " << eta << endl;
+            cout << "New Normal : " << calculated_normal << endl;
         }
 
     }
