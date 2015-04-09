@@ -673,7 +673,14 @@ void superVoxels_clustering(pcl::PointCloud<pcl::PointXYZRGBA>::Ptr cloud){
                     // The clusters are new neighbors
                     if(new_n1_id > 0 && new_n2_id > 0){
                         // Both are already present in the map
-                        new_adj_map.insert(std::pair<int,int>(new_n1_id, new_n2_id));
+
+                        bool found = false;
+                        std::multimap<int, int>::iterator it3;
+                        for (it3 = new_adj_map.equal_range(new_n1_id).first ; it3!=new_adj_map.equal_range (new_n1_id).second; ++it3){
+                            if(new_n2_id == it3->second) found = true;
+                        }
+
+                        if(!found) new_adj_map.insert(std::pair<int,int>(new_n1_id, new_n2_id));
                     }
 
                     else if(new_n1_id > 0 && new_n2_id < 0){
