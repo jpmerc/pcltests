@@ -41,6 +41,8 @@
 #include <boost/thread.hpp>
 #include <vtkPolyLine.h>
 
+#include "opencv2/imgproc/imgproc.hpp"
+
 /*
   This file segments the aligned point clouds into objects
 */
@@ -68,6 +70,7 @@ void region_growing_rgb(pcl::PointCloud<PointT>::Ptr cloud);
 void printSuperVoxels(std::map<int, pcl::Supervoxel<pcl::PointXYZRGBA>::Ptr> *voxels, std::multimap<int, int> *adjacency, bool showGraph);
 void printMap(std::map<int, std::vector<int> > *myMap);
 void spectralClustering(std::map<int, pcl::Supervoxel<pcl::PointXYZRGBA>::Ptr> *voxels, std::multimap<int, int> *adjacency);
+void kmeans_clustering(Eigen::MatrixXd normalizedLaplacianMatrix);
 
 void initPCLViewer(){
     //PCL Viewer
@@ -606,7 +609,7 @@ void superVoxels_clustering(pcl::PointCloud<pcl::PointXYZRGBA>::Ptr cloud){
             //cout << n_i << endl;
             for(int i=0; i < indices.size(); i++){
                 pcl::PointNormal n_j = supervoxel_normals[indices.at(i)];
-               // cout << n_j << endl;
+                // cout << n_j << endl;
                 double dot_product = (n_i.normal_x * n_j.normal_x) + (n_i.normal_y * n_j.normal_y) + (n_i.normal_z * n_j.normal_z);
                 //cout << "Dot : " << dot_product << endl;
                 double value = 0;
@@ -616,7 +619,7 @@ void superVoxels_clustering(pcl::PointCloud<pcl::PointXYZRGBA>::Ptr cloud){
                 else {
                     value = exp( -alpha * acos(dot_product) );
                 }
-               // cout << "Value : " << value << endl;
+                // cout << "Value : " << value << endl;
                 calculated_normal.normal_x += (value * n_j.normal_x);
                 calculated_normal.normal_y += (value * n_j.normal_y);
                 calculated_normal.normal_z += (value * n_j.normal_z);
@@ -630,8 +633,8 @@ void superVoxels_clustering(pcl::PointCloud<pcl::PointXYZRGBA>::Ptr cloud){
 
             supervoxel_normals[it->first] = calculated_normal;
 
-           // cout << "Eta : " << eta << endl;
-           // cout << "New Normal : " << calculated_normal << endl;
+            // cout << "Eta : " << eta << endl;
+            // cout << "New Normal : " << calculated_normal << endl;
         }
 
     }
@@ -643,7 +646,7 @@ void superVoxels_clustering(pcl::PointCloud<pcl::PointXYZRGBA>::Ptr cloud){
     std::multimap<int, int> new_adj_map;
 
     //Iterate over all clusters
-    int cluster_index = 1;
+    int cluster_index = 0;
     for (std::map<uint32_t, pcl::Supervoxel<PointT>::Ptr>::iterator it=supervoxel_clusters.begin(); it!=supervoxel_clusters.end(); ++it){
         int n1_id = it->first;
         pcl::PointNormal n_1 = supervoxel_normals[n1_id];
@@ -850,47 +853,135 @@ bool isAdjacent(std::multimap<int, int> *adjacency, int id1, int id2){
 
 void spectralClustering(std::map<int, pcl::Supervoxel<pcl::PointXYZRGBA>::Ptr> *voxels, std::multimap<int, int> *adjacency){
 
-    // Init Normalized Laplacian Matrix
-    Eigen::MatrixXd normalizedLaplacian;
+    using namespace Eigen;
+
     int size = voxels->size();
+
+
+    // Init Normalized Laplacian Matrix
+    MatrixXd normalizedLaplacian;
     normalizedLaplacian.resize(size, size);
     normalizedLaplacian.setZero();
 
-    // Get degree of a vertex
-    // int degree = adjacency->count(index);
 
-    // Fill Matrix
-    for(int i = 0; i < size; i++){
-        int id1 = voxels->find(i)->first;
-        for(int j=0; j < size; j++){
-            if( i == j){
+    // Init weight (Adjacency)  Matrix
+    MatrixXd W;
+    W.resize(size, size);
+    W.setZero();
+
+    // Init degree Matrix
+    MatrixXd D;
+    D.resize(size, size);
+    D.setZero();
+
+    // Init identity Matrix
+    MatrixXd I;
+    I.resize(size, size);
+    I.setIdentity();
+
+
+    for(std::map<int, pcl::Supervoxel<pcl::PointXYZRGBA>::Ptr>::iterator it = voxels->begin(); it != voxels->end(); ++it){
+
+        int id1 = it->first;
+        pcl::Supervoxel<pcl::PointXYZRGBA>::Ptr supervoxel1 = it->second;
+
+        //cout << id1 << endl;
+        for(std::map<int, pcl::Supervoxel<pcl::PointXYZRGBA>::Ptr>::iterator it2 = voxels->begin(); it2 != voxels->end(); ++it2){
+            int id2 = it2->first;
+            pcl::Supervoxel<pcl::PointXYZRGBA>::Ptr supervoxel2 = it2->second;
+
+            // Degrees Matrix
+            if( id1 == id2){
                 int degree = adjacency->count(id1);
-                if(degree > 0) normalizedLaplacian(i,j) = 1;
-                else normalizedLaplacian(i,j) = 0;
+                D(id1, id2) = degree;
             }
-            else{
-                int id2 = voxels->find(j)->first;
-                bool adjacent = isAdjacent(adjacency, id1, id2);
-                if(adjacent){
 
-                    int deg1 = adjacency->count(id1);
-                    int deg2 = adjacency->count(id2);
-                    double root = sqrt( deg1 * deg2 );
-                    double val = -1 / root;
-                    normalizedLaplacian(i,j) = val;
-                }
+            // Weight Matrix
+            pcl::Normal v1 = supervoxel1->normal_;
+            pcl::PointXYZRGBA c1 = supervoxel1->centroid_;
 
-                else{
-                    normalizedLaplacian(i,j) = 0;
-                }
-            }
+            pcl::Normal v2 = supervoxel2->normal_;
+            pcl::PointXYZRGBA c2 = supervoxel2->centroid_;
+
+            double opt1 = v1.normal_x * (c1.x - c2.x) + v1.normal_y * (c1.y - c2.y) + v1.normal_z * (c1.z - c2.z);
+            double opt2 = v2.normal_x * (c2.x - c1.x) + v2.normal_y * (c2.y - c1.y) + v2.normal_z * (c2.z - c1.z);
+
+            double max = std::max(opt1, opt2);
+            if(max < 0) max = 0;
+
+            W(id1, id2) = max;
+
         }
     }
 
-    cout << "Normalized Laplacian Matrix" << endl;
+
+    MatrixXd D_root = D.cwiseSqrt();
+    MatrixXd D_root_inv = D_root;
+    for(int i = 0; i < size; i++){
+        double v = D_root_inv(i, i);
+        if(v != 0) D_root_inv(i, i) = 1 / v;
+    }
+
+
+
+    // Calculate Normalized Laplacian Matrix
+    MatrixXd Laplacian = D - W;
+    normalizedLaplacian = D_root_inv * Laplacian * D_root;
+
+
+    cout << "Degree Matrix" << endl;
+    cout << D << endl;
+
+    cout << "Degree Matrix root" << endl;
+    cout << D_root  << endl;
+
+    cout << "Degree Matrix root inversed" << endl;
+    cout << D_root_inv  << endl;
+
+    cout << "normalizedLaplacian Matrix" << endl;
     cout << normalizedLaplacian << endl;
+
+
+    kmeans_clustering(normalizedLaplacian);
+
+
 }
 
+
+void kmeans_clustering(Eigen::MatrixXd normalizedLaplacianMatrix){
+
+    using namespace Eigen;
+
+    EigenSolver<MatrixXd> es(normalizedLaplacianMatrix);
+
+
+    cout << "Eigenvalues :" << endl;
+    cout <<  es.eigenvalues() << endl;
+
+    cout << "Eigenvectors :" << endl;
+    cout <<  es.eigenvectors().col(1) << endl;
+
+
+    cout << "value : " << endl;
+    cout << es.eigenvalues()(1) << endl;
+
+
+//    // Check which eigenvalues are under the threshold
+//    double threshold = 0.01;
+//    std::vector<int> indices;
+//    for(int i = 0; i < es.eigenvalues().col(1).rows(); i++){
+//        //int val = es.eigenvalues().col(1).row(1).value();
+
+//        if(1 < threshold){
+//            indices.push_back(i);
+//            cout << i << endl;
+//        }
+//    }
+
+
+
+
+}
 
 
 
