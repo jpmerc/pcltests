@@ -729,22 +729,29 @@ void superVoxels_clustering(pcl::PointCloud<pcl::PointXYZRGBA>::Ptr cloud){
 
                             // delete the adjacency if there is and modify the others
                             cout << "Adjacency map :" << endl;
-                             for(std::multimap<int, int>::iterator it3 = new_adj_map.begin(); it3 != new_adj_map.end(); ++it3){
-                                 int first = it3->first;
-                                 int second = it3->second;
-                                 cout << first << " -> " << second << endl;
+                            for(std::multimap<int, int>::iterator it3 = new_adj_map.begin(); it3 != new_adj_map.end(); ++it3){
+                                int first = it3->first;
+                                int second = it3->second;
+                                cout << first << " -> " << second << endl;
 
-                                 if((first==new_n1_id && second==new_n2_id) || (first==new_n2_id && second==new_n1_id)){
-                                     new_adj_map.erase(it3);
-                                 }
-                                 else if(first == new_n2_id){
+                                if((first==new_n1_id && second==new_n2_id) || (first==new_n2_id && second==new_n1_id)){
+                                    new_adj_map.erase(it3);
+                                }
+                                else if(first == new_n2_id){
                                     new_adj_map.erase(it3);
                                     new_adj_map.insert(std::pair<int,int>(new_n1_id, second));
-                                 }
-                                 else if(second == new_n2_id){
-                                     it3->second = new_n1_id;
-                                 }
-                             }
+                                }
+                                else if(second == new_n2_id){
+                                    it3->second = new_n1_id;
+                                }
+                            }
+
+                            for(std::multimap<int, int>::iterator it3 = new_adj_map.begin(); it3 != new_adj_map.end(); ++it3){
+                                int first = it3->first;
+                                int second = it3->second;
+                                cout << first << " -> " << second << endl;
+                            }
+
                         }
                     }
 
