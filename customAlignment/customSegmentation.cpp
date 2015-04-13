@@ -746,6 +746,7 @@ void superVoxels_clustering(pcl::PointCloud<pcl::PointXYZRGBA>::Ptr cloud){
                                 }
                             }
 
+                            cout << "Adjacency map (revised) :" << endl;
                             for(std::multimap<int, int>::iterator it3 = new_adj_map.begin(); it3 != new_adj_map.end(); ++it3){
                                 int first = it3->first;
                                 int second = it3->second;
