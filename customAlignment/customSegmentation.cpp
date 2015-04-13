@@ -489,10 +489,10 @@ void superVoxels_clustering(pcl::PointCloud<pcl::PointXYZRGBA>::Ptr cloud){
     pcl::ScopeTime t("Segmentation in Supervoxels");
 
     double voxel_resolution = 0.01;
-    double seed_resolution = 0.05;
+    double seed_resolution = 0.02;
     bool use_transform = true;
-    double color_importance = 0.2;
-    double spatial_importance = 0.4;
+    double color_importance = 0.5;
+    double spatial_importance = 0.5;
     double normal_importance = 1;
 
     /// Supervoxel Clustering
@@ -966,17 +966,23 @@ void kmeans_clustering(Eigen::MatrixXd normalizedLaplacianMatrix){
     cout << es.eigenvalues()(1) << endl;
 
 
-//    // Check which eigenvalues are under the threshold
-//    double threshold = 0.01;
-//    std::vector<int> indices;
-//    for(int i = 0; i < es.eigenvalues().col(1).rows(); i++){
-//        //int val = es.eigenvalues().col(1).row(1).value();
+    // Check which eigenvalues are under the threshold
+    double threshold = 0.01;
+    std::vector<int> indices;
+    for(int i = 0; i < es.eigenvalues().rows(); i++){
+        //int val = es.eigenvalues().col(1).row(1).value();
 
-//        if(1 < threshold){
-//            indices.push_back(i);
-//            cout << i << endl;
-//        }
-//    }
+        std::complex<double> vec = es.eigenvalues()(i);
+        double real = vec.real();
+        double im = vec.imag();
+
+        if(real < threshold && im == 0){
+            indices.push_back(i);
+
+
+
+        }
+    }
 
 
 
