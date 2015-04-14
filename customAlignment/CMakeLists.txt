@@ -24,3 +24,6 @@ target_link_libraries (wholeLoop_workingExample ${PCL_LIBRARIES})
 add_executable (demo demo.cpp)
 target_link_libraries (demo ${PCL_LIBRARIES})
 
+add_executable (segmentationAbdeslam segmentationAbdeslam.cpp)
+target_link_libraries (segmentationAbdeslam ${PCL_LIBRARIES} ${OpenCV_LIBS})
+
