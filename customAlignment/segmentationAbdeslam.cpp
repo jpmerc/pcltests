@@ -76,7 +76,7 @@ double MEAN_SHIFT_ALPHA = 10.0;
 int MEAN_SHIFT_ITERATIONS = 2;
 
 double KMEANS_EIGENVALUE_THRESHOLD = 0.01;
-int KMEANS_NUMBER_OF_CLUSTERS = 13;
+int KMEANS_NUMBER_OF_CLUSTERS = 8;
 
 
 
@@ -90,6 +90,7 @@ void printSuperVoxels(std::map<int, pcl::Supervoxel<pcl::PointXYZRGBA>::Ptr> *vo
 void printMap(std::map<int, std::vector<int> > *myMap, std::string mapName);
 void spectralClustering(std::map<int, pcl::Supervoxel<pcl::PointXYZRGBA>::Ptr> *voxels, std::multimap<int, int> *adjacency);
 Eigen::VectorXd kmeans_clustering(Eigen::MatrixXd normalizedLaplacianMatrix);
+void printEigenMatrix(Eigen::MatrixXd matrix, std::string name);
 
 void initPCLViewer(){
     //PCL Viewer
@@ -661,7 +662,7 @@ std::map<int, std::vector<int> > findNeighbors(std::map<int, std::vector<int> > 
             if(found_id1 && found_id2) break;
         }
 
-        addPairToMultimapWithoutDoublons(adjacencyNewClusters, new_id1, new_id2, true);
+        if(new_id1 != new_id2) addPairToMultimapWithoutDoublons(adjacencyNewClusters, new_id1, new_id2, true);
 
     }
 
@@ -967,6 +968,7 @@ void spectralClustering(std::map<int, pcl::Supervoxel<pcl::PointXYZRGBA>::Ptr> *
     int i = 0;
     int j = 0;
 
+    // Fill Weight (adjacency matrix)
     for(std::map<int, pcl::Supervoxel<pcl::PointXYZRGBA>::Ptr>::iterator it = voxels->begin(); it != voxels->end(); ++it){
 
         int id1 = it->first;
@@ -977,12 +979,6 @@ void spectralClustering(std::map<int, pcl::Supervoxel<pcl::PointXYZRGBA>::Ptr> *
         for(std::map<int, pcl::Supervoxel<pcl::PointXYZRGBA>::Ptr>::iterator it2 = voxels->begin(); it2 != voxels->end(); ++it2){
             int id2 = it2->first;
             pcl::Supervoxel<pcl::PointXYZRGBA>::Ptr supervoxel2 = it2->second;
-
-            // Degrees Matrix
-            if( id1 == id2){
-                int degree = adjacency->count(id1);
-                D(i, j) = degree;
-            }
 
             // Weight Matrix
             pcl::Normal v1 = supervoxel1->normal_;
@@ -998,12 +994,32 @@ void spectralClustering(std::map<int, pcl::Supervoxel<pcl::PointXYZRGBA>::Ptr> *
             if(isnan(max) || max < 0) max = 0;
 
             W(i, j) = max;
-
             j++;
         }
         i++;
     }
 
+
+
+    // Fill Degrees Matrix (sum of weights of adjacents supervoxels)
+    for(int x = 0; x < D.rows(); x++){
+
+        int numberOfAdjacentSuperVoxels = adjacency->count(x);
+        if(numberOfAdjacentSuperVoxels > 0){
+            std::multimap<int,int>::iterator it;
+            double sum_of_weights = 0;
+            for (it = adjacency->equal_range(x).first ; it!=adjacency->equal_range(x).second; ++it){
+                int first = it->first;
+                int second = it->second;
+                sum_of_weights += W(first, second);
+            }
+            D(x,x) = sum_of_weights;
+        }
+
+        else{
+            D(x,x) = 0;
+        }
+    }
 
     MatrixXd D_root = D.cwiseSqrt();
     MatrixXd D_root_inv = D_root;
@@ -1014,14 +1030,13 @@ void spectralClustering(std::map<int, pcl::Supervoxel<pcl::PointXYZRGBA>::Ptr> *
 
     // Calculate Normalized Laplacian Matrix
     MatrixXd Laplacian = D - W;
-    normalizedLaplacian = D_root_inv * Laplacian * D_root;
+    normalizedLaplacian = D_root_inv * Laplacian * D_root_inv;
 
-
-    cout << "Degree Matrix" << endl;
-    cout << D << endl;
-
-    cout << "Adjacency (weight) Matrix" << endl;
-    cout << W << endl;
+    // Print Matrices
+    printEigenMatrix(W, "Adjacency (weight) Matrix");
+    printEigenMatrix(D, "Degree Matrix");
+    printEigenMatrix(normalizedLaplacian, "Normalized Laplacian Matrix");
+    printEigenMatrix(D_root_inv, "Degree inverse Matrix");
 
 //    cout << "Degree Matrix root" << endl;
 //    cout << D_root  << endl;
@@ -1072,8 +1087,8 @@ Eigen::VectorXd kmeans_clustering(Eigen::MatrixXd normalizedLaplacianMatrix){
     cout <<  es.eigenvalues() << endl;
 
 
-    //    cout << "Eigenvectors :" << endl;
-    //    cout <<  es.eigenvectors().col(0) << endl;
+     //   cout << "Eigenvectors :" << endl;
+    //    cout <<  es.eigenvectors().col(15) << endl;
 
 
     //    cout << "value : " << endl;
@@ -1367,14 +1382,26 @@ void findCylinderPrimitive(pcl::PointCloud<PointT>::Ptr cloud){
 
 }
 
+void printEigenMatrix(Eigen::MatrixXd matrix, std::string name){
+    cout << name << endl;
+    cout << "[ ";
+    for(int i=0; i < matrix.rows(); i++){
+        for(int j=0; j < matrix.cols(); j++){
+            cout << matrix(i,j) << " ";
+        }
+        cout << ";" << endl;
+    }
+    cout << "]" << endl;
+}
+
 int main (int argc, char** argv){
 
 
     pcl::PointCloud<PointT>::Ptr scene_cloud(new pcl::PointCloud<PointT>);
     pcl::PointCloud<PointT>::Ptr model_cloud(new pcl::PointCloud<PointT>);
 
-//    pcl::io::loadPCDFile("../bmw_clutter_remaining.pcd", *scene_cloud);
-    pcl::io::loadPCDFile("/home/jp/Downloads/OSD-0.2/pcd/test55.pcd", *scene_cloud);
+    pcl::io::loadPCDFile("../bmw_clutter_remaining.pcd", *scene_cloud);
+ //   pcl::io::loadPCDFile("/home/jp/Downloads/OSD-0.2/pcd/test55.pcd", *scene_cloud);
 
     //    pcl::io::loadPCDFile("../customAlignment_fine.pcd", *model_cloud);
 
@@ -1382,17 +1409,17 @@ int main (int argc, char** argv){
 
 
 
-    /// Filter points in X-Y-Z and remove the plane if using the OSD Dataset
-    pcl::PointCloud<PointT>::Ptr temp_cloud(new pcl::PointCloud<PointT>);
+    /// COMMENT IF NOT USING OSD DATASET
+//    pcl::PointCloud<PointT>::Ptr temp_cloud(new pcl::PointCloud<PointT>);
+//    pcl::PassThrough<PointT> pass_filter;
+//    pass_filter.setFilterFieldName("z");
+//    pass_filter.setFilterLimits(0, 1.3);
+//    pass_filter.setInputCloud(scene_cloud);
+//    pass_filter.filter(*temp_cloud);
+//    scene_cloud = extractPlane(temp_cloud, true);
 
-    pcl::PassThrough<PointT> pass_filter;
-    pass_filter.setFilterFieldName("z");
-    pass_filter.setFilterLimits(0, 1.3);
-    pass_filter.setInputCloud(scene_cloud);
-    pass_filter.filter(*temp_cloud);
 
 
-    scene_cloud = extractPlane(temp_cloud, true);
 
     pclViewer->addPointCloud (scene_cloud, ColorHandlerT(scene_cloud, 255.0, 255.0, 0.0), "scene");
     pclViewer->setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 1, "scene");
@@ -1423,6 +1450,16 @@ int main (int argc, char** argv){
     pcl::PointCloud<pcl::PointXYZRGBA>::Ptr scene_cloud_xyzrgb(new pcl::PointCloud<pcl::PointXYZRGBA>);
     pcl::copyPointCloud(*scene_cloud, *scene_cloud_xyzrgb);
     superVoxels_clustering(scene_cloud_xyzrgb);
+
+
+//    cout << "Pointcloud Coordinates : " << endl;
+//    cout << "Pts = [ ";
+//    for(int i = 0; i < scene_cloud_xyzrgb->size(); i++){
+//        cout << scene_cloud_xyzrgb->at(i).x << " ";
+//        cout << scene_cloud_xyzrgb->at(i).y << " ";
+//        cout << scene_cloud_xyzrgb->at(i).z << ";" << endl;
+//    }
+//    cout << "]" << endl;
 
 
     // Find Primitives
