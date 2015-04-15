@@ -45,7 +45,9 @@
 #include "opencv2/imgproc/imgproc.hpp"
 
 /*
-  This file segments the input pointcloud into objects based on Learning to Manipulate Unknown Objects in Clutter by Reinforcement ( https://www.ri.cmu.edu/pub_files/2015/1/AbdeslamAAAI2015.pdf )
+  This file segments the input pointcloud into objects based on Geometrical Segmentation of Point Cloud
+Data by Spectral Analysis ( http://opus.bib.hochschule-bonn-rhein-sieg.de/opus-3.3/volltexte/2014/25/pdf/brsu_techreport_02_2014_Sergey_Alexandrov_pdf_1_4.pdf )
+
 */
 
 
@@ -1087,7 +1089,7 @@ Eigen::VectorXd kmeans_clustering(Eigen::MatrixXd normalizedLaplacianMatrix){
     cout <<  es.eigenvalues() << endl;
 
 
-    //   cout << "Eigenvectors :" << endl;
+     //   cout << "Eigenvectors :" << endl;
     //    cout <<  es.eigenvectors().col(15) << endl;
 
 

@@ -27,3 +27,5 @@ target_link_libraries (demo ${PCL_LIBRARIES})
 add_executable (segmentationAbdeslam segmentationAbdeslam.cpp)
 target_link_libraries (segmentationAbdeslam ${PCL_LIBRARIES} ${OpenCV_LIBS})
 
+add_executable (segmentationAlexandrov segmentationAlexandrov.cpp)
+target_link_libraries (segmentationAlexandrov ${PCL_LIBRARIES} ${OpenCV_LIBS})
