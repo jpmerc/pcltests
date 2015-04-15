@@ -28,6 +28,7 @@
 #include <pcl/filters/voxel_grid.h>
 #include <pcl/filters/extract_indices.h>
 #include <pcl/filters/crop_hull.h>
+#include <pcl/filters/passthrough.h>
 
 #include <pcl/segmentation/region_growing.h>
 #include <pcl/segmentation/region_growing_rgb.h>
@@ -68,12 +69,14 @@ double SUPERVOXEL_SEED_RESOLUTION = 0.015;
 double SUPERVOXEL_COLOR_IMPORTANCE = 0.1;
 double SUPERVOXEL_SPATIAL_IMPORTANCE = 0.1;
 double SUPERVOXEL_NORMAL_IMPORTANCE = 1.0;
+bool SUPERVOXEL_REFINE = false;
+int SUPERVOXEL_REFINE_ITERATIONS = 1;
 
 double MEAN_SHIFT_ALPHA = 10.0;
-int MEAN_SHIFT_ITERATIONS = 10;
+int MEAN_SHIFT_ITERATIONS = 2;
 
 double KMEANS_EIGENVALUE_THRESHOLD = 0.01;
-int KMEANS_NUMBER_OF_CLUSTERS = 10;
+int KMEANS_NUMBER_OF_CLUSTERS = 13;
 
 
 
@@ -134,7 +137,7 @@ pcl::PointCloud<PointT>::Ptr downsample(pcl::PointCloud<PointT>::Ptr cloud, doub
 }
 
 
-pcl::PointCloud<PointT>::Ptr extractPlane(pcl::PointCloud<PointT>::Ptr cloud){
+pcl::PointCloud<PointT>::Ptr extractPlane(pcl::PointCloud<PointT>::Ptr cloud, bool removePlane){
 
     pcl::PointCloud<PointT>::Ptr returned_cloud(new pcl::PointCloud<PointT>);
 
@@ -151,6 +154,7 @@ pcl::PointCloud<PointT>::Ptr extractPlane(pcl::PointCloud<PointT>::Ptr cloud){
     segmentation.segment(*inlierIndices, *coefficients);
 
     pcl::ExtractIndices<PointT> extract;
+    extract.setNegative(removePlane);
     extract.setInputCloud(cloud);
     extract.setIndices(inlierIndices);
     extract.filter (*returned_cloud);
@@ -173,7 +177,7 @@ pcl::PointCloud<PointT>::Ptr getCentroid(pcl::PointCloud<PointT>::Ptr cloud){
 
 pcl::PointCloud<PointT>::Ptr getCentroid2D(pcl::PointCloud<PointT>::Ptr cloud){
 
-    pcl::PointCloud<PointT>::Ptr bottom_plane = extractPlane(cloud);
+    pcl::PointCloud<PointT>::Ptr bottom_plane = extractPlane(cloud,false);
 
     pcl::PointCloud<PointT>::Ptr centroid_cloud (new pcl::PointCloud<PointT>);
     Eigen::Vector4f c;
@@ -559,11 +563,12 @@ void addNeighbors(std::map<int, std::vector<int> > *adjacency,
 
             // Check if the point has already been processed to avoid being stuck in infinite loop
             if (std::find(processed_indices->begin(), processed_indices->end(), neighbor_index) == processed_indices->end()){
-                processed_indices->push_back(neighbor_index);
+
 
                 pcl::PointNormal n_2 = supervoxel_normals->at(neighbor_index);
                 double similarity = cosine_similarity(&n_1, &n_2);
                 if(similarity >= FACETS_SIMILARITY_THRESHOLD){
+                    processed_indices->push_back(neighbor_index);
 
                     // Check if the index is already present in the vector
                     std::vector<int> indices = new_clusters->at(cluster_index);
@@ -678,7 +683,7 @@ void superVoxels_clustering(pcl::PointCloud<pcl::PointXYZRGBA>::Ptr cloud){
 
     pcl::ScopeTime t("Segmentation in Supervoxels");
 
-    bool use_transform = true;
+    bool use_transform = false;
 
     /// Supervoxel Clustering
     pcl::SupervoxelClustering<PointT> super (SUPERVOXEL_VOXEL_RESOLUTION, SUPERVOXEL_SEED_RESOLUTION, use_transform);
@@ -689,6 +694,8 @@ void superVoxels_clustering(pcl::PointCloud<pcl::PointXYZRGBA>::Ptr cloud){
 
     std::map <uint32_t, pcl::Supervoxel<PointT>::Ptr > supervoxel_clusters;
     super.extract (supervoxel_clusters);
+
+    if(SUPERVOXEL_REFINE) super.refineSupervoxels(SUPERVOXEL_REFINE_ITERATIONS, supervoxel_clusters);
     //super.refineSupervoxels(3, supervoxel_clusters);
     pcl::console::print_info ("Found %d supervoxels\n", supervoxel_clusters.size ());
 
@@ -988,7 +995,7 @@ void spectralClustering(std::map<int, pcl::Supervoxel<pcl::PointXYZRGBA>::Ptr> *
             double opt2 = v2.normal_x * (c2.x - c1.x) + v2.normal_y * (c2.y - c1.y) + v2.normal_z * (c2.z - c1.z);
 
             double max = std::max(opt1, opt2);
-            if(max < 0) max = 0;
+            if(isnan(max) || max < 0) max = 0;
 
             W(i, j) = max;
 
@@ -1012,6 +1019,9 @@ void spectralClustering(std::map<int, pcl::Supervoxel<pcl::PointXYZRGBA>::Ptr> *
 
     cout << "Degree Matrix" << endl;
     cout << D << endl;
+
+    cout << "Adjacency (weight) Matrix" << endl;
+    cout << W << endl;
 
 //    cout << "Degree Matrix root" << endl;
 //    cout << D_root  << endl;
@@ -1363,10 +1373,31 @@ int main (int argc, char** argv){
     pcl::PointCloud<PointT>::Ptr scene_cloud(new pcl::PointCloud<PointT>);
     pcl::PointCloud<PointT>::Ptr model_cloud(new pcl::PointCloud<PointT>);
 
-    pcl::io::loadPCDFile("../bmw_clutter_remaining.pcd", *scene_cloud);
+//    pcl::io::loadPCDFile("../bmw_clutter_remaining.pcd", *scene_cloud);
+    pcl::io::loadPCDFile("/home/jp/Downloads/OSD-0.2/pcd/test55.pcd", *scene_cloud);
+
     //    pcl::io::loadPCDFile("../customAlignment_fine.pcd", *model_cloud);
 
     initPCLViewer();
+
+
+
+    /// Filter points in X-Y-Z and remove the plane if using the OSD Dataset
+    pcl::PointCloud<PointT>::Ptr temp_cloud(new pcl::PointCloud<PointT>);
+
+    pcl::PassThrough<PointT> pass_filter;
+    pass_filter.setFilterFieldName("z");
+    pass_filter.setFilterLimits(0, 1.3);
+    pass_filter.setInputCloud(scene_cloud);
+    pass_filter.filter(*temp_cloud);
+
+
+    scene_cloud = extractPlane(temp_cloud, true);
+
+    pclViewer->addPointCloud (scene_cloud, ColorHandlerT(scene_cloud, 255.0, 255.0, 0.0), "scene");
+    pclViewer->setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 1, "scene");
+
+
 
     //    pcl::PointCloud<PointT>::Ptr scene_segmented(new pcl::PointCloud<PointT>);
     //    scene_segmented = cropAndSegmentScene(scene_cloud, model_cloud);
