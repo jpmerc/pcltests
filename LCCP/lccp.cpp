@@ -1,14 +1,20 @@
 #include <pcl/io/pcd_io.h>
 #include <pcl/point_types.h>
+
 #include <pcl/filters/passthrough.h>
 #include <pcl/filters/project_inliers.h>
+#include <pcl/filters/extract_indices.h>
+
 #include <pcl/visualization/pcl_visualizer.h>
 #include <pcl/visualization/point_cloud_color_handlers.h>
+
 #include <pcl/common/time.h>
 #include <pcl/common/transforms.h>
 
 #include <pcl/segmentation/supervoxel_clustering.h>
 #include <pcl/segmentation/lccp_segmentation.h>
+#include <pcl/segmentation/extract_clusters.h>
+#include <pcl/segmentation/sac_segmentation.h>
 
 #include <vtkImageReader2Factory.h>
 #include <vtkImageReader2.h>
@@ -34,17 +40,17 @@ float normals_scale;
 ///  Default values of parameters before parsing
 // Supervoxel Stuff
 float voxel_resolution = 0.01f;
-float seed_resolution = 0.03f;
-float color_importance = 1.0f;
-float spatial_importance = 1.0f;
-float normal_importance = 4.0f;
+float seed_resolution = 0.02f;
+float color_importance = 0.1f;
+float spatial_importance = 0.1f;
+float normal_importance = 1.0f;
 bool use_single_cam_transform = false;
-bool use_supervoxel_refinement = true;
+bool use_supervoxel_refinement = false;
 
 // LCCPSegmentation Stuff
-float concavity_tolerance_threshold = 1;
-float smoothness_threshold = 0.05;
-uint32_t min_segment_size = 0;
+float concavity_tolerance_threshold = 10;
+float smoothness_threshold = 0.01;
+uint32_t min_segment_size = 1;
 bool use_extended_convexity = false;
 bool use_sanity_criterion = false;
 
@@ -119,6 +125,32 @@ removeText (boost::shared_ptr<pcl::visualization::PCLVisualizer> viewer_arg)
     viewer_arg->removeShape ("normals_scale_text");
 }
 
+pcl::PointCloud<PointT>::Ptr extractPlane(pcl::PointCloud<PointT>::Ptr cloud, bool removePlane){
+
+    pcl::PointCloud<PointT>::Ptr returned_cloud(new pcl::PointCloud<PointT>);
+
+    pcl::ModelCoefficients::Ptr coefficients(new pcl::ModelCoefficients);
+    pcl::PointIndices::Ptr inlierIndices(new pcl::PointIndices);
+
+    // Find the plane coefficients from the model
+    pcl::SACSegmentation<PointT> segmentation;
+    segmentation.setInputCloud(cloud);
+    segmentation.setModelType(pcl::SACMODEL_PLANE);
+    segmentation.setMethodType(pcl::SAC_RANSAC);
+    segmentation.setDistanceThreshold(0.02);
+    segmentation.setOptimizeCoefficients(true);
+    segmentation.segment(*inlierIndices, *coefficients);
+
+    pcl::ExtractIndices<PointT> extract;
+    extract.setNegative(removePlane);
+    extract.setInputCloud(cloud);
+    extract.setIndices(inlierIndices);
+    extract.filter (*returned_cloud);
+
+    return returned_cloud;
+
+}
+
 
 
 int main (int argc, char** argv)
@@ -128,12 +160,25 @@ int main (int argc, char** argv)
             cloud_filtered_translated (new pcl::PointCloud<PointT>);
 
 
-    pcl::io::loadPCDFile("../bmw_clutter_remaining.pcd", *cloud);
+    pcl::io::loadPCDFile("/home/jp/Downloads/OSD-0.2/pcd/test43.pcd", *cloud);
+
+
+    /// COMMENT IF NOT USING OSD DATASET
+    pcl::PointCloud<PointT>::Ptr temp_cloud(new pcl::PointCloud<PointT>);
+    pcl::PassThrough<PointT> pass_filter;
+    pass_filter.setFilterFieldName("z");
+    pass_filter.setFilterLimits(0, 1.3);
+    pass_filter.setInputCloud(cloud);
+    pass_filter.filter(*temp_cloud);
+    cloud = extractPlane(temp_cloud, true);
+
+
+
 
     // Params
     normals_scale = seed_resolution / 2.0;
     uint k_factor = 0;
-    if (use_extended_convexity) k_factor = 4;
+    if (use_extended_convexity) k_factor = 1;
 
     /// Supervoxels
     pcl::SupervoxelClustering<PointT> super (voxel_resolution, seed_resolution);
