@@ -965,6 +965,12 @@ void spectralClustering(std::map<int, pcl::Supervoxel<pcl::PointXYZRGBA>::Ptr> *
     I.setIdentity();
 
 
+
+    // Number Of Connections
+    MatrixXd Connections;
+    Connections.resize(size, size);
+    Connections.setZero();
+
     int i = 0;
     int j = 0;
 
@@ -1005,6 +1011,7 @@ void spectralClustering(std::map<int, pcl::Supervoxel<pcl::PointXYZRGBA>::Ptr> *
     for(int x = 0; x < D.rows(); x++){
 
         int numberOfAdjacentSuperVoxels = adjacency->count(x);
+        Connections(x,x) = numberOfAdjacentSuperVoxels;
         if(numberOfAdjacentSuperVoxels > 0){
             std::multimap<int,int>::iterator it;
             double sum_of_weights = 0;
@@ -1035,8 +1042,10 @@ void spectralClustering(std::map<int, pcl::Supervoxel<pcl::PointXYZRGBA>::Ptr> *
     // Print Matrices
     printEigenMatrix(W, "Adjacency (weight) Matrix");
     printEigenMatrix(D, "Degree Matrix");
+    printEigenMatrix(Laplacian, "Laplacian Matrix");
     printEigenMatrix(normalizedLaplacian, "Normalized Laplacian Matrix");
     printEigenMatrix(D_root_inv, "Degree inverse Matrix");
+    printEigenMatrix(Connections, "Connections Matrix (not used in code, only for information purposes)");
 
 //    cout << "Degree Matrix root" << endl;
 //    cout << D_root  << endl;
@@ -1384,7 +1393,7 @@ void findCylinderPrimitive(pcl::PointCloud<PointT>::Ptr cloud){
 
 void printEigenMatrix(Eigen::MatrixXd matrix, std::string name){
     cout << name << endl;
-    cout << "[ ";
+    cout << "[ " << endl;
     for(int i=0; i < matrix.rows(); i++){
         for(int j=0; j < matrix.cols(); j++){
             cout << matrix(i,j) << " ";
