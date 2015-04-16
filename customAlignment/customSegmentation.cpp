@@ -759,7 +759,7 @@ void superVoxels_clustering(pcl::PointCloud<pcl::PointXYZRGBA>::Ptr cloud){
     for (std::map<uint32_t, pcl::Supervoxel<PointT>::Ptr>::iterator it=supervoxel_clusters.begin(); it!=supervoxel_clusters.end(); ++it){
         pcl::PointNormal ptN;
         it->second->getCentroidPointNormal(ptN);
-        //cout << it->first << " , " << ptN << endl;
+        cout << it->first << " , " << ptN << endl;
         //cout << it->first << endl;
         supervoxel_normals[it->first] = ptN;
     }
@@ -898,6 +898,8 @@ void superVoxels_clustering(pcl::PointCloud<pcl::PointXYZRGBA>::Ptr cloud){
         // Set Normal of the merged Supervoxel
         Eigen::Vector4f vNormal = Eigen::Vector4f::Zero();
         float curvature = 0;
+
+        /// Problem (can return Nan)
         pcl::computePointNormal(*(merged_sVoxel->voxels_), vNormal, curvature);
         vNormal[3] = 0.0;
         vNormal.normalize();
@@ -907,6 +909,8 @@ void superVoxels_clustering(pcl::PointCloud<pcl::PointXYZRGBA>::Ptr cloud){
         norm.normal_z = vNormal[2];
         norm.curvature = curvature;
         merged_sVoxel->normal_ = norm;
+
+
 
         merged_supervoxel_clusters[key] = merged_sVoxel;
     }
@@ -986,20 +990,40 @@ void spectralClustering(std::map<int, pcl::Supervoxel<pcl::PointXYZRGBA>::Ptr> *
             int id2 = it2->first;
             pcl::Supervoxel<pcl::PointXYZRGBA>::Ptr supervoxel2 = it2->second;
 
-            // Weight Matrix
-            pcl::Normal v1 = supervoxel1->normal_;
-            pcl::PointXYZRGBA c1 = supervoxel1->centroid_;
+            // Abdeslam Method Weights
+            //            // Weight Matrix
+            //            pcl::Normal v1 = supervoxel1->normal_;
+            //            pcl::PointXYZRGBA c1 = supervoxel1->centroid_;
 
-            pcl::Normal v2 = supervoxel2->normal_;
-            pcl::PointXYZRGBA c2 = supervoxel2->centroid_;
+            //            pcl::Normal v2 = supervoxel2->normal_;
+            //            pcl::PointXYZRGBA c2 = supervoxel2->centroid_;
 
-            double opt1 = v1.normal_x * (c1.x - c2.x) + v1.normal_y * (c1.y - c2.y) + v1.normal_z * (c1.z - c2.z);
-            double opt2 = v2.normal_x * (c2.x - c1.x) + v2.normal_y * (c2.y - c1.y) + v2.normal_z * (c2.z - c1.z);
+            //            double opt1 = v1.normal_x * (c1.x - c2.x) + v1.normal_y * (c1.y - c2.y) + v1.normal_z * (c1.z - c2.z);
+            //            double opt2 = v2.normal_x * (c2.x - c1.x) + v2.normal_y * (c2.y - c1.y) + v2.normal_z * (c2.z - c1.z);
 
-            double max = std::max(opt1, opt2);
-            if(isnan(max) || max < 0) max = 0;
+            //            double max = std::max(opt1, opt2);
+            //            if(isnan(max) || max < 0) max = 0;
 
-            W(i, j) = max;
+            // Alexandrov Weights
+            const Vector3f& n1 = supervoxel1->normal_.getNormalVector3fMap().normalized();
+            const Vector3f& c1 = supervoxel1->centroid_.getVector3fMap();
+
+            const Vector3f& n2 = supervoxel2->normal_.getNormalVector3fMap().normalized();
+            const Vector3f& c2 = supervoxel2->centroid_.getVector3fMap();
+
+            double dot = (n2 - n1).dot(c2 - c1);
+            if(dot > 0){
+                // convex
+                W(i, j) = 1;
+            }
+            else{
+                // inverse quadratic radial basis function : 1 / ( 1 + sigma* ||(n1-n2)||^2)
+                double sigma = 0.5;
+                double squared_norm = (n1 - n2).squaredNorm();
+                double function_value = 1 / (1 + sigma * squared_norm);
+                W(i, j) = function_value;
+            }
+
             j++;
         }
         i++;
