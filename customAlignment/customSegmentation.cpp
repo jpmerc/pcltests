@@ -75,7 +75,7 @@ int SUPERVOXEL_REFINE_ITERATIONS = 1;
 double MEAN_SHIFT_ALPHA = 10.0;
 int MEAN_SHIFT_ITERATIONS = 2;
 
-double KMEANS_EIGENVALUE_THRESHOLD = 0.01;
+double KMEANS_EIGENVALUE_THRESHOLD = 0.9997;
 int KMEANS_NUMBER_OF_CLUSTERS = 8;
 
 
@@ -758,7 +758,7 @@ void superVoxels_clustering(pcl::PointCloud<pcl::PointXYZRGBA>::Ptr cloud){
     for (std::map<uint32_t, pcl::Supervoxel<PointT>::Ptr>::iterator it=supervoxel_clusters.begin(); it!=supervoxel_clusters.end(); ++it){
         pcl::PointNormal ptN;
         it->second->getCentroidPointNormal(ptN);
-        cout << it->first << " , " << ptN << endl;
+        //cout << it->first << " , " << ptN << endl;
         //cout << it->first << endl;
         supervoxel_normals[it->first] = ptN;
     }
@@ -916,26 +916,39 @@ void superVoxels_clustering(pcl::PointCloud<pcl::PointXYZRGBA>::Ptr cloud){
             vNormal.normalize();
         }
 
-
-
         pcl::Normal norm;
         norm.normal_x = vNormal[0];
         norm.normal_y = vNormal[1];
         norm.normal_z = vNormal[2];
         norm.curvature = curvature;
-
-
-
-
         merged_sVoxel->normal_ = norm;
-
-
-        cout << "normal : " << norm.normal_x << endl;
-
-
 
         merged_supervoxel_clusters[key] = merged_sVoxel;
     }
+
+    // Print Centroid Matrix
+    cout << "Centroid_Matrix = [ " << endl;
+    for(std::map <int, pcl::Supervoxel<PointT>::Ptr >::iterator it = merged_supervoxel_clusters.begin(); it != merged_supervoxel_clusters.end(); ++it){
+        int key = it->first;
+        pcl::Supervoxel<PointT>::Ptr supervox = it->second;
+        cout << supervox->centroid_.x << " ";
+        cout << supervox->centroid_.y << " ";
+        cout << supervox->centroid_.z << ";" << endl;
+    }
+    cout << "]" << endl;
+
+    // Print Normals Matrix
+    cout << "Normals_Matrix = [ " << endl;
+    for(std::map <int, pcl::Supervoxel<PointT>::Ptr >::iterator it = merged_supervoxel_clusters.begin(); it != merged_supervoxel_clusters.end(); ++it){
+        int key = it->first;
+        pcl::Supervoxel<PointT>::Ptr supervox = it->second;
+        cout << supervox->normal_.normal_x << " ";
+        cout << supervox->normal_.normal_y << " ";
+        cout << supervox->normal_.normal_z << ";" << endl;
+    }
+    cout << "]" << endl;
+
+
 
     printSuperVoxels(&merged_supervoxel_clusters, &new_adj_map, pclViewer2, true);
 
@@ -990,8 +1003,6 @@ void spectralClustering(std::map<int, pcl::Supervoxel<pcl::PointXYZRGBA>::Ptr> *
     I.resize(size, size);
     I.setIdentity();
 
-
-
     // Number Of Connections
     MatrixXd Connections;
     Connections.resize(size, size);
@@ -1027,23 +1038,35 @@ void spectralClustering(std::map<int, pcl::Supervoxel<pcl::PointXYZRGBA>::Ptr> *
             //            if(isnan(max) || max < 0) max = 0;
 
             // Alexandrov Weights
-            const Vector3f& n1 = supervoxel1->normal_.getNormalVector3fMap().normalized();
-            const Vector3f& c1 = supervoxel1->centroid_.getVector3fMap();
+            //            const Vector3f& n1 = supervoxel1->normal_.getNormalVector3fMap().normalized();
+            //            const Vector3f& c1 = supervoxel1->centroid_.getVector3fMap();
 
-            const Vector3f& n2 = supervoxel2->normal_.getNormalVector3fMap().normalized();
-            const Vector3f& c2 = supervoxel2->centroid_.getVector3fMap();
+            //            const Vector3f& n2 = supervoxel2->normal_.getNormalVector3fMap().normalized();
+            //            const Vector3f& c2 = supervoxel2->centroid_.getVector3fMap();
 
-            double dot = (n2 - n1).dot(c2 - c1);
-            if(dot > 0){
-                // convex
-                W(i, j) = 1;
+            //            double dot = (n2 - n1).dot(c2 - c1);
+            //            if(dot > 0){
+            //                // convex
+            //                W(i, j) = 1;
+            //            }
+            //            else{
+            //                // inverse quadratic radial basis function : 1 / ( 1 + sigma* ||(n1-n2)||^2)
+            //                double sigma = 0.05;
+            //                double squared_norm = (n1 - n2).squaredNorm();
+            //                double function_value = 1 / (1 + sigma * squared_norm);
+            //                W(i, j) = function_value;
+            //            }
+
+            if(isAdjacent(adjacency, id1, id2)){
+                const Vector3f& c1 = supervoxel1->centroid_.getVector3fMap();
+                const Vector3f& c2 = supervoxel2->centroid_.getVector3fMap();
+                double sigma = 0.05;
+                double squared_norm = (c1 - c2).squaredNorm();
+                double val = exp(-squared_norm / (2*sigma*sigma));
+                W(i, j) = val;
             }
             else{
-                // inverse quadratic radial basis function : 1 / ( 1 + sigma* ||(n1-n2)||^2)
-                double sigma = 0.5;
-                double squared_norm = (n1 - n2).squaredNorm();
-                double function_value = 1 / (1 + sigma * squared_norm);
-                W(i, j) = function_value;
+                 W(i, j) = 0;
             }
 
             j++;
