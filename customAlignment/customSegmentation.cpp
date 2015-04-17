@@ -565,7 +565,6 @@ void addNeighbors(std::map<int, std::vector<int> > *adjacency,
             // Check if the point has already been processed to avoid being stuck in infinite loop
             if (std::find(processed_indices->begin(), processed_indices->end(), neighbor_index) == processed_indices->end()){
 
-
                 pcl::PointNormal n_2 = supervoxel_normals->at(neighbor_index);
                 double similarity = cosine_similarity(&n_1, &n_2);
                 if(similarity >= FACETS_SIMILARITY_THRESHOLD){
@@ -900,15 +899,38 @@ void superVoxels_clustering(pcl::PointCloud<pcl::PointXYZRGBA>::Ptr cloud){
         float curvature = 0;
 
         /// Problem (can return Nan)
-        pcl::computePointNormal(*(merged_sVoxel->voxels_), vNormal, curvature);
+        pcl::PointCloud<PointT> voxels_pc = *(merged_sVoxel->voxels_);
+        pcl::computePointNormal(voxels_pc, vNormal, curvature);
         vNormal[3] = 0.0;
         vNormal.normalize();
+
+        // If there is less than 2 points in the new cluster, take the average of the supervoxel centroid normals
+        if(isnan(vNormal[0]) || isnan(vNormal[1]) || isnan(vNormal[2])){
+            Eigen::Vector4f tempNormal = Eigen::Vector4f::Zero();
+            for(int i=0; i < v.size(); i++){
+                int id = v.at(i);
+                pcl::Supervoxel<PointT>::Ptr sVoxel = supervoxel_clusters[id];
+                tempNormal += sVoxel->normal_.getNormalVector4fMap();
+            }
+            vNormal = tempNormal / v.size();
+            vNormal.normalize();
+        }
+
+
+
         pcl::Normal norm;
         norm.normal_x = vNormal[0];
         norm.normal_y = vNormal[1];
         norm.normal_z = vNormal[2];
         norm.curvature = curvature;
+
+
+
+
         merged_sVoxel->normal_ = norm;
+
+
+        cout << "normal : " << norm.normal_x << endl;
 
 
 
