@@ -1063,6 +1063,7 @@ void spectralClustering(std::map<int, pcl::Supervoxel<pcl::PointXYZRGBA>::Ptr> *
                 double sigma = 0.05;
                 double squared_norm = (c1 - c2).squaredNorm();
                 double val = exp(-squared_norm / (2*sigma*sigma));
+               // double val = 1 / (1 + sigma * squared_norm);
                 W(i, j) = val;
             }
             else{
