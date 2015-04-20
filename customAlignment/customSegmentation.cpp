@@ -1105,15 +1105,22 @@ void spectralClustering(std::map<int, pcl::Supervoxel<pcl::PointXYZRGBA>::Ptr> *
         if(v != 0) D_root_inv(i, i) = 1 / v;
     }
 
+    MatrixXd D_inverse = D.inverse();
+
     // Calculate Normalized Laplacian Matrix
     MatrixXd Laplacian = D - W;
     normalizedLaplacian = D_root_inv * Laplacian * D_root_inv;
+
+    // Random Walk Laplacian
+    MatrixXd RandomWalkLaplacian;
+    RandomWalkLaplacian = D_inverse * Laplacian;
 
     // Print Matrices
     printEigenMatrix(W, "Adjacency (weight) Matrix");
     printEigenMatrix(D, "Degree Matrix");
     printEigenMatrix(Laplacian, "Laplacian Matrix");
     printEigenMatrix(normalizedLaplacian, "Normalized Laplacian Matrix");
+    printEigenMatrix(RandomWalkLaplacian, "Random Walk Laplacian Matrix");
     printEigenMatrix(D_root_inv, "Degree inverse Matrix");
     printEigenMatrix(Connections, "Connections Matrix (not used in code, only for information purposes)");
 
