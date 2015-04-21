@@ -59,6 +59,7 @@ boost::shared_ptr<pcl::visualization::PCLVisualizer> pclViewer (new pcl::visuali
 boost::shared_ptr<pcl::visualization::PCLVisualizer> pclViewer2 (new pcl::visualization::PCLVisualizer ("3D Viewer2"));
 boost::shared_ptr<pcl::visualization::PCLVisualizer> pclViewer3 (new pcl::visualization::PCLVisualizer ("3D Viewer3"));
 boost::shared_ptr<pcl::visualization::PCLVisualizer> pclViewer4 (new pcl::visualization::PCLVisualizer ("3D Viewer4"));
+boost::shared_ptr<pcl::visualization::PCLVisualizer> pclViewer5 (new pcl::visualization::PCLVisualizer ("3D Viewer5"));
 
 
 /// LIST OF PARAMETERS
@@ -74,6 +75,8 @@ int SUPERVOXEL_REFINE_ITERATIONS = 1;
 
 double MEAN_SHIFT_ALPHA = 10.0;
 int MEAN_SHIFT_ITERATIONS = 2;
+
+int NUMBER_OF_SAME_NEIGHBORS_TO_MERGE_THRESHOLD = 2;
 
 double KMEANS_EIGENVALUE_THRESHOLD = 0.9997;
 int KMEANS_NUMBER_OF_CLUSTERS = 8;
@@ -91,6 +94,13 @@ void printMap(std::map<int, std::vector<int> > *myMap, std::string mapName);
 void spectralClustering(std::map<int, pcl::Supervoxel<pcl::PointXYZRGBA>::Ptr> *voxels, std::multimap<int, int> *adjacency);
 Eigen::VectorXd kmeans_clustering(Eigen::MatrixXd normalizedLaplacianMatrix);
 void printEigenMatrix(Eigen::MatrixXd matrix, std::string name);
+double numberOfSameNeighbors(std::multimap<int, int> *adjacency, int id1, int id2);
+void mergeSimilarSupervoxelNeighbors(std::map<int, pcl::Supervoxel<pcl::PointXYZRGBA>::Ptr> *supervoxels, std::multimap<int, int> *adjacency);
+
+std::map<int, std::vector<int> > findNeighbors(std::map<int, std::vector<int> > *adjacency,
+                                               std::map<int, pcl::Supervoxel<pcl::PointXYZRGBA>::Ptr> *supervoxels,
+                                               std::multimap<int, int> *adjacencyNewClusters,
+                                               std::multimap<int, int> *previousAdjacency);
 
 void initPCLViewer(){
     //PCL Viewer
@@ -122,6 +132,13 @@ void initPCLViewer(){
     vtkSmartPointer<vtkRenderWindow> renderWindow4 = pclViewer4->getRenderWindow();
     renderWindow4->SetSize(800,450);
     renderWindow4->Render();
+
+    pclViewer5->setBackgroundColor (0, 0, 0);
+    pclViewer5->initCameraParameters ();
+    pclViewer5->setCameraPosition(0,0,0,0,0,1,0,-1,0);
+    vtkSmartPointer<vtkRenderWindow> renderWindow5 = pclViewer5->getRenderWindow();
+    renderWindow5->SetSize(800,450);
+    renderWindow5->Render();
 
 }
 
@@ -665,12 +682,224 @@ std::map<int, std::vector<int> > findNeighbors(std::map<int, std::vector<int> > 
 
     }
 
+    return new_clusters;
+}
 
 
+void addNeighbors(std::map<int, std::vector<int> > *adjacency,
+                  std::map<int, std::vector<int> > *new_clusters,
+                  std::multimap<int,int> *adjacencyOldClusters,
+                  std::multimap<int,int> *previousAdjacency,
+                  std::vector<int> *processed_indices,
+                  int index,
+                  int cluster_index){
 
+    if(adjacency->count(index) > 0){
+        std::vector<int> neighbors_indices = adjacency->at(index);
+
+        for(int i = 0; i < neighbors_indices.size(); i++){
+
+            // Chek if they are similar (if yes add it and check its neighbors)
+            int neighbor_index = neighbors_indices.at(i);
+
+            // Check if the point has already been processed to avoid being stuck in infinite loop
+            if (std::find(processed_indices->begin(), processed_indices->end(), neighbor_index) == processed_indices->end()){
+
+                double similar_neighbors = numberOfSameNeighbors(previousAdjacency, index, neighbor_index);
+                if(similar_neighbors >= NUMBER_OF_SAME_NEIGHBORS_TO_MERGE_THRESHOLD){
+                    processed_indices->push_back(neighbor_index);
+
+                    // Check if the index is already present in the vector
+                    std::vector<int> indices = new_clusters->at(cluster_index);
+                    if(std::find(indices.begin(), indices.end(), neighbor_index) == indices.end()) {
+                        //not present
+                        indices.push_back(neighbor_index);
+                        new_clusters->at(cluster_index) = indices;
+                    }
+
+                    addNeighbors(adjacency, new_clusters, adjacencyOldClusters, previousAdjacency, processed_indices, neighbor_index, cluster_index);
+                }
+
+                else{
+                    // Not similar (adjacent)
+                    addPairToMultimapWithoutDoublons(adjacencyOldClusters, index, neighbor_index, false);
+                }
+            }
+
+        }
+    }
+
+
+}
+
+std::map<int, std::vector<int> > findNeighbors(std::map<int, std::vector<int> > *adjacency,
+                                               std::map<int, pcl::Supervoxel<pcl::PointXYZRGBA>::Ptr> *supervoxels,
+                                               std::multimap<int, int> *adjacencyNewClusters,
+                                               std::multimap<int, int> *previousAdjacency){
+
+    int new_cluster_index = 0;
+    std::map<int, std::vector<int> > new_clusters;
+    std::multimap<int,int> adjacencyOldClusters;
+
+    for(std::map<int, pcl::Supervoxel<pcl::PointXYZRGBA>::Ptr>::iterator it = supervoxels->begin(); it != supervoxels->end(); ++it){
+        int first = it->first;
+        if(new_clusters.size() == 0){
+            std::vector<int> v;
+            v.push_back(first);
+            new_clusters[new_cluster_index] = v;
+            addNeighbors(adjacency, &new_clusters, &adjacencyOldClusters, previousAdjacency, &v, first, new_cluster_index);
+            new_cluster_index++;
+        }
+
+        else{
+            bool found = false;
+            for(std::map<int, std::vector<int> >::iterator it2 = new_clusters.begin(); it2 != new_clusters.end(); ++it2){
+                std::vector<int> indices = it2->second;
+                if(std::find(indices.begin(), indices.end(), first) != indices.end()) {
+                    found = true;
+                    break;
+                }
+            }
+
+            if(!found){
+                std::vector<int> v;
+                v.push_back(first);
+                new_clusters[new_cluster_index] = v;
+                addNeighbors(adjacency, &new_clusters, &adjacencyOldClusters, previousAdjacency, &v, first, new_cluster_index);
+                new_cluster_index++;
+            }
+        }
+    }
+
+
+    // Fill the new Ajacency Matrix with the new cluster indices instead of the old ones
+    //cout << "old adjacency : " << endl;
+    for (std::multimap<int, int>::iterator it=adjacencyOldClusters.begin(); it!=adjacencyOldClusters.end(); ++it){
+        //cout << it->first << " " << it->second << endl;
+        int id1 = it->first;
+        int id2 = it->second;
+        int new_id1 = -1;
+        int new_id2 = -1;
+        bool found_id1 = false;
+        bool found_id2 = false;
+
+        std::map<int, std::vector<int> >::iterator it2;
+        for(it2 = new_clusters.begin(); it2 != new_clusters.end(); ++it2){
+            std::vector<int> indices = it2->second;
+            if(!found_id1){
+                if(std::find(indices.begin(), indices.end(), id1) != indices.end()) {
+                    new_id1 = it2->first;
+                    found_id1 = true;
+                }
+            }
+            if(!found_id2){
+                if(std::find(indices.begin(), indices.end(), id2) != indices.end()) {
+                    new_id2 = it2->first;
+                    found_id2 = true;
+                }
+            }
+            if(found_id1 && found_id2) break;
+        }
+
+        if(new_id1 != new_id2) addPairToMultimapWithoutDoublons(adjacencyNewClusters, new_id1, new_id2, true);
+
+    }
 
     return new_clusters;
 }
+
+template<typename T,typename K> std::map<T, std::vector<T> > convertMultimapToMap(std::multimap<K, K> *supervoxel_adjacency){
+    int id = -1;
+    std::vector<T> n_id;
+    std::map<T, std::vector<T> > adjacency_map;
+    typename std::multimap<K, K>::iterator it;
+    for( it = supervoxel_adjacency->begin(); it != supervoxel_adjacency->end(); ){
+        //cout << it->first << " , " << it->second << endl;
+
+        if(id < 0) id = it->first;
+
+        if(id != it->first){
+            adjacency_map[id] = n_id;
+            n_id.clear();
+            id = it->first;
+        }
+        n_id.push_back(it->second);
+
+
+        ++it;
+        if(it == supervoxel_adjacency->end()) {
+            adjacency_map[id] = n_id;
+        }
+    }
+
+    return adjacency_map;
+}
+
+
+template<typename T,typename K> std::map <int, pcl::Supervoxel<pcl::PointXYZRGBA>::Ptr> mergeSuperVoxels(std::map<T, std::vector<T> > *new_clusters_map,
+                                                                                                         std::map <K, pcl::Supervoxel<pcl::PointXYZRGBA>::Ptr > *supervoxel_clusters){
+
+    typedef pcl::PointXYZRGBA PointT;
+
+    std::map <int, pcl::Supervoxel<PointT>::Ptr > merged_supervoxel_clusters;
+
+    for(typename std::map<T, std::vector<T> >::iterator it = new_clusters_map->begin(); it != new_clusters_map->end(); ++it){
+        int key = it->first;
+        std::vector<int> v = it->second;
+
+        pcl::Supervoxel<PointT>::Ptr merged_sVoxel(new pcl::Supervoxel<PointT>);
+
+        for(int i=0; i < v.size(); i++){
+            int id = v.at(i);
+            pcl::Supervoxel<PointT>::Ptr sVoxel = supervoxel_clusters->at(id);
+            *(merged_sVoxel->voxels_)  += *(sVoxel->voxels_);
+            *(merged_sVoxel->normals_) += *(sVoxel->normals_);
+        }
+
+        // Set Centroid of the merged Supervoxel
+        Eigen::Vector4f centroid;
+        pcl::compute3DCentroid<PointT>(*(merged_sVoxel->voxels_), centroid);
+        pcl::PointXYZRGBA cent;
+        cent.x = centroid[0];
+        cent.y = centroid[1];
+        cent.z = centroid[2];
+        merged_sVoxel->centroid_ = cent;
+
+        // Set Normal of the merged Supervoxel
+        Eigen::Vector4f vNormal = Eigen::Vector4f::Zero();
+        float curvature = 0;
+
+        /// Problem (can return Nan)
+        pcl::PointCloud<PointT> voxels_pc = *(merged_sVoxel->voxels_);
+        pcl::computePointNormal(voxels_pc, vNormal, curvature);
+        vNormal[3] = 0.0;
+        vNormal.normalize();
+
+        // If there is less than 2 points in the new cluster, take the average of the supervoxel centroid normals
+        if(isnan(vNormal[0]) || isnan(vNormal[1]) || isnan(vNormal[2])){
+            Eigen::Vector4f tempNormal = Eigen::Vector4f::Zero();
+            for(int i=0; i < v.size(); i++){
+                int id = v.at(i);
+                pcl::Supervoxel<PointT>::Ptr sVoxel = supervoxel_clusters->at(id);
+                tempNormal += sVoxel->normal_.getNormalVector4fMap();
+            }
+            vNormal = tempNormal / v.size();
+            vNormal.normalize();
+        }
+
+        pcl::Normal norm;
+        norm.normal_x = vNormal[0];
+        norm.normal_y = vNormal[1];
+        norm.normal_z = vNormal[2];
+        norm.curvature = curvature;
+        merged_sVoxel->normal_ = norm;
+
+        merged_supervoxel_clusters[key] = merged_sVoxel;
+    }
+
+    return merged_supervoxel_clusters;
+}
+
 
 void superVoxels_clustering(pcl::PointCloud<pcl::PointXYZRGBA>::Ptr cloud){
 
@@ -701,10 +930,11 @@ void superVoxels_clustering(pcl::PointCloud<pcl::PointXYZRGBA>::Ptr cloud){
 
 
     // copy map to good format for spectral clustering (int instead of uint32_t)
-    std::map <int, pcl::Supervoxel<PointT>::Ptr > supervoxel_clusters_int;
+    std::map <int, pcl::Supervoxel<PointT>::Ptr> supervoxel_clusters_int;
     for (std::map<uint32_t, pcl::Supervoxel<PointT>::Ptr>::iterator it=supervoxel_clusters.begin(); it!=supervoxel_clusters.end(); ++it){
         int id = it->first;
-        supervoxel_clusters_int[id] = it->second;
+        pcl::Supervoxel<PointT>::Ptr vox = it->second;
+        supervoxel_clusters_int[id] = vox;
     }
 
 
@@ -777,29 +1007,9 @@ void superVoxels_clustering(pcl::PointCloud<pcl::PointXYZRGBA>::Ptr cloud){
 
 
     // Change the format of the adjacency map for easier calculation of mean shift
-    int id = -1;
-    std::vector<int> n_id;
-    std::map<int, std::vector<int> > adjacency_map;
-    for(std::multimap<uint32_t, uint32_t>::iterator it = supervoxel_adjacency.begin(); it != supervoxel_adjacency.end(); ){
-        //cout << it->first << " , " << it->second << endl;
-
-        if(id < 0) id = it->first;
-
-        if(id != it->first){
-            adjacency_map[id] = n_id;
-            n_id.clear();
-            id = it->first;
-        }
-        n_id.push_back(it->second);
-
-
-        ++it;
-        if(it == supervoxel_adjacency.end()) {
-            adjacency_map[id] = n_id;
-        }
-    }
-
+    std::map<int, std::vector<int> > adjacency_map = convertMultimapToMap<int,uint32_t>(&supervoxel_adjacency);
     printMap(&adjacency_map, "Adjacency Map");
+
 
     /// Starting Mean Shift Algorithm
     // Mean shift iterations for calculating new normals from neighborhood
@@ -848,8 +1058,6 @@ void superVoxels_clustering(pcl::PointCloud<pcl::PointXYZRGBA>::Ptr cloud){
 
     }
 
-
-
     /// Merge Supervoxels Based on Cosine Similarity
     std::map<int, std::vector<int> > new_clusters_map;
     std::multimap<int, int> new_adj_map;
@@ -870,61 +1078,8 @@ void superVoxels_clustering(pcl::PointCloud<pcl::PointXYZRGBA>::Ptr cloud){
 
     /// Build a map of the newly merged Supervoxels
     cout << "Merging...!" << endl;
-    std::map <int, pcl::Supervoxel<PointT>::Ptr > merged_supervoxel_clusters;
+    std::map <int, pcl::Supervoxel<PointT>::Ptr > merged_supervoxel_clusters = mergeSuperVoxels<int,uint32_t>(&new_clusters_map, &supervoxel_clusters);
 
-    for(std::map<int, std::vector<int> >::iterator it = new_clusters_map.begin(); it != new_clusters_map.end(); ++it){
-        int key = it->first;
-        std::vector<int> v = it->second;
-
-        pcl::Supervoxel<PointT>::Ptr merged_sVoxel(new pcl::Supervoxel<PointT>);
-
-        for(int i=0; i < v.size(); i++){
-            int id = v.at(i);
-            pcl::Supervoxel<PointT>::Ptr sVoxel = supervoxel_clusters[id];
-            *(merged_sVoxel->voxels_)  += *(sVoxel->voxels_);
-            *(merged_sVoxel->normals_) += *(sVoxel->normals_);
-        }
-
-        // Set Centroid of the merged Supervoxel
-        Eigen::Vector4f centroid;
-        pcl::compute3DCentroid<PointT>(*(merged_sVoxel->voxels_), centroid);
-        pcl::PointXYZRGBA cent;
-        cent.x = centroid[0];
-        cent.y = centroid[1];
-        cent.z = centroid[2];
-        merged_sVoxel->centroid_ = cent;
-
-        // Set Normal of the merged Supervoxel
-        Eigen::Vector4f vNormal = Eigen::Vector4f::Zero();
-        float curvature = 0;
-
-        /// Problem (can return Nan)
-        pcl::PointCloud<PointT> voxels_pc = *(merged_sVoxel->voxels_);
-        pcl::computePointNormal(voxels_pc, vNormal, curvature);
-        vNormal[3] = 0.0;
-        vNormal.normalize();
-
-        // If there is less than 2 points in the new cluster, take the average of the supervoxel centroid normals
-        if(isnan(vNormal[0]) || isnan(vNormal[1]) || isnan(vNormal[2])){
-            Eigen::Vector4f tempNormal = Eigen::Vector4f::Zero();
-            for(int i=0; i < v.size(); i++){
-                int id = v.at(i);
-                pcl::Supervoxel<PointT>::Ptr sVoxel = supervoxel_clusters[id];
-                tempNormal += sVoxel->normal_.getNormalVector4fMap();
-            }
-            vNormal = tempNormal / v.size();
-            vNormal.normalize();
-        }
-
-        pcl::Normal norm;
-        norm.normal_x = vNormal[0];
-        norm.normal_y = vNormal[1];
-        norm.normal_z = vNormal[2];
-        norm.curvature = curvature;
-        merged_sVoxel->normal_ = norm;
-
-        merged_supervoxel_clusters[key] = merged_sVoxel;
-    }
 
     // Print Centroid Matrix
     cout << "Centroid_Matrix = [ " << endl;
@@ -949,9 +1104,12 @@ void superVoxels_clustering(pcl::PointCloud<pcl::PointXYZRGBA>::Ptr cloud){
     cout << "]" << endl;
 
 
-
     printSuperVoxels(&merged_supervoxel_clusters, &new_adj_map, pclViewer2, true);
 
+
+    // Merge facets with same neighbors
+    //mergeSimilarSupervoxelNeighbors(&merged_supervoxel_clusters, &new_adj_map);
+    //printSuperVoxels(&merged_supervoxel_clusters, &new_adj_map, pclViewer5, true);
 
     spectralClustering(&merged_supervoxel_clusters, &new_adj_map);
 
@@ -959,6 +1117,25 @@ void superVoxels_clustering(pcl::PointCloud<pcl::PointXYZRGBA>::Ptr cloud){
 
 
 
+}
+
+void mergeSimilarSupervoxelNeighbors(std::map<int, pcl::Supervoxel<pcl::PointXYZRGBA>::Ptr> *supervoxels, std::multimap<int, int> *adjacency){
+
+    typedef pcl::PointXYZRGBA PointT;
+
+    std::map<int, pcl::Supervoxel<pcl::PointXYZRGBA>::Ptr> merged_supervoxels;
+
+    std::map<int, std::vector<int> > adjacency_map = convertMultimapToMap<int,int>(adjacency);
+
+    std::multimap<int, int> adjacencyNewClusters;
+    std::map<int, std::vector<int> > merged_indices = findNeighbors(&adjacency_map, supervoxels, &adjacencyNewClusters, adjacency);
+
+    printMap(&merged_indices, "Similar Neighbors Merging");
+
+    std::map <int, pcl::Supervoxel<PointT>::Ptr > merged_supervoxel_clusters = mergeSuperVoxels<int,int>(&merged_indices, supervoxels);
+
+    supervoxels->swap(merged_supervoxel_clusters);
+    adjacency->swap(adjacencyNewClusters);
 }
 
 bool isAdjacent(std::multimap<int, int> *adjacency, int id1, int id2){
@@ -972,6 +1149,38 @@ bool isAdjacent(std::multimap<int, int> *adjacency, int id1, int id2){
         }
     }
     return adj;
+}
+
+double numberOfSameNeighbors(std::multimap<int, int> *adjacency, int id1, int id2){
+
+    std::vector<int> v1;
+    std::vector<int> v2;
+
+    std::multimap<int,int>::iterator it;
+    for (it = adjacency->equal_range(id1).first ; it!=adjacency->equal_range(id1).second; ++it){
+        int temp_id = it->second;
+        v1.push_back(temp_id);
+    }
+
+    for (it = adjacency->equal_range(id2).first ; it!=adjacency->equal_range(id2).second; ++it){
+        int temp_id = it->second;
+        v2.push_back(temp_id);
+    }
+
+    double sameNeighbors = 0;
+    for(int i = 0; i < v1.size(); i++){
+        int temp_id_1 = v1.at(i);
+        for(int j = 0; j < v2.size(); j++){
+           int temp_id_2 = v2.at(j);
+           if(temp_id_1 == temp_id_2){
+               sameNeighbors++;
+               continue;
+           }
+        }
+
+    }
+
+    return sameNeighbors;
 }
 
 
@@ -1011,12 +1220,15 @@ void spectralClustering(std::map<int, pcl::Supervoxel<pcl::PointXYZRGBA>::Ptr> *
     int i = 0;
     int j = 0;
 
+    std::map<int,int> clusterToMatrixIndices;
+
     // Fill Weight (adjacency matrix)
     for(std::map<int, pcl::Supervoxel<pcl::PointXYZRGBA>::Ptr>::iterator it = voxels->begin(); it != voxels->end(); ++it){
 
         int id1 = it->first;
         pcl::Supervoxel<pcl::PointXYZRGBA>::Ptr supervoxel1 = it->second;
         j = 0;
+        clusterToMatrixIndices[id1] = i;
 
         //cout << id1 << endl;
         for(std::map<int, pcl::Supervoxel<pcl::PointXYZRGBA>::Ptr>::iterator it2 = voxels->begin(); it2 != voxels->end(); ++it2){
@@ -1062,9 +1274,16 @@ void spectralClustering(std::map<int, pcl::Supervoxel<pcl::PointXYZRGBA>::Ptr> *
                 const Vector3f& c2 = supervoxel2->centroid_.getVector3fMap();
                 double sigma = 0.05;
                 double squared_norm = (c1 - c2).squaredNorm();
-                double val = exp(-squared_norm / (2*sigma*sigma));
-               // double val = 1 / (1 + sigma * squared_norm);
-                W(i, j) = val;
+                //double val = exp(-squared_norm / (2*sigma*sigma));
+                double inverse_quadratic = 1 / (1 + 500 * squared_norm);
+
+//                double sameNeighbors = numberOfSameNeighbors(adjacency, id1, id2);
+//                double neighborhood_score = 1.5 * log(sameNeighbors + 1);
+//                if(neighborhood_score > 1.0) neighborhood_score = 1.0;
+
+//                double score = ( inverse_quadratic + neighborhood_score ) / 2 ;
+
+                W(i, j) = inverse_quadratic;
             }
             else{
                  W(i, j) = 0;
@@ -1088,7 +1307,7 @@ void spectralClustering(std::map<int, pcl::Supervoxel<pcl::PointXYZRGBA>::Ptr> *
             for (it = adjacency->equal_range(x).first ; it!=adjacency->equal_range(x).second; ++it){
                 int first = it->first;
                 int second = it->second;
-                sum_of_weights += W(first, second);
+                sum_of_weights += W(clusterToMatrixIndices[first], clusterToMatrixIndices[second]);
             }
             D(x,x) = sum_of_weights;
         }
@@ -1105,14 +1324,25 @@ void spectralClustering(std::map<int, pcl::Supervoxel<pcl::PointXYZRGBA>::Ptr> *
         if(v != 0) D_root_inv(i, i) = 1 / v;
     }
 
-    MatrixXd D_inverse = D.inverse();
-
     // Calculate Normalized Laplacian Matrix
     MatrixXd Laplacian = D - W;
     normalizedLaplacian = D_root_inv * Laplacian * D_root_inv;
 
-    // Random Walk Laplacian
+    // Random Walk Laplacian (needs to replace zeros in D)
+    MatrixXd D_without_zeros;
+    D_without_zeros.resize(size, size);
+    D_without_zeros.setZero();
+    double epsilon = 2.2204 * pow(10.0, -16.0);
+    for(int x = 0; x < D.rows(); x++){
+        if(D(x,x) == 0){
+            D_without_zeros(x,x) = epsilon;
+        }
+        else{
+            D_without_zeros(x,x) = D(x,x);
+        }
+    }
     MatrixXd RandomWalkLaplacian;
+    MatrixXd D_inverse = D_without_zeros.inverse();
     RandomWalkLaplacian = D_inverse * Laplacian;
 
     // Print Matrices
@@ -1121,7 +1351,8 @@ void spectralClustering(std::map<int, pcl::Supervoxel<pcl::PointXYZRGBA>::Ptr> *
     printEigenMatrix(Laplacian, "Laplacian Matrix");
     printEigenMatrix(normalizedLaplacian, "Normalized Laplacian Matrix");
     printEigenMatrix(RandomWalkLaplacian, "Random Walk Laplacian Matrix");
-    printEigenMatrix(D_root_inv, "Degree inverse Matrix");
+    printEigenMatrix(D_root_inv, "Root Degree inverse Matrix");
+    printEigenMatrix(D_inverse, "Degree inverse Matrix");
     printEigenMatrix(Connections, "Connections Matrix (not used in code, only for information purposes)");
 
 //    cout << "Degree Matrix root" << endl;
