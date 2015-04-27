@@ -1274,8 +1274,8 @@ void spectralClustering(std::map<int, pcl::Supervoxel<pcl::PointXYZRGBA>::Ptr> *
                 const Vector3f& c2 = supervoxel2->centroid_.getVector3fMap();
                 double sigma = 0.05;
                 double squared_norm = (c1 - c2).squaredNorm();
-                //double val = exp(-squared_norm / (2*sigma*sigma));
-                double inverse_quadratic = 1 / (1 + 500 * squared_norm);
+                double val = exp(-squared_norm / (2*sigma*sigma));
+                //double inverse_quadratic = 1 / (1 + 500 * squared_norm);
 
 //                double sameNeighbors = numberOfSameNeighbors(adjacency, id1, id2);
 //                double neighborhood_score = 1.5 * log(sameNeighbors + 1);
@@ -1283,7 +1283,7 @@ void spectralClustering(std::map<int, pcl::Supervoxel<pcl::PointXYZRGBA>::Ptr> *
 
 //                double score = ( inverse_quadratic + neighborhood_score ) / 2 ;
 
-                W(i, j) = inverse_quadratic;
+                W(i, j) = val;
             }
             else{
                  W(i, j) = 0;
@@ -1328,7 +1328,7 @@ void spectralClustering(std::map<int, pcl::Supervoxel<pcl::PointXYZRGBA>::Ptr> *
     MatrixXd Laplacian = D - W;
     normalizedLaplacian = D_root_inv * Laplacian * D_root_inv;
 
-    // Random Walk Laplacian (needs to replace zeros in D)
+    // Random Walk Laplacian (replace zeros in D by epsilon)
     MatrixXd D_without_zeros;
     D_without_zeros.resize(size, size);
     D_without_zeros.setZero();
@@ -1390,6 +1390,63 @@ void spectralClustering(std::map<int, pcl::Supervoxel<pcl::PointXYZRGBA>::Ptr> *
 
 }
 
+cv::Mat retrieveKsmallestEigenvectors(Eigen::MatrixXd eigenvectors, Eigen::MatrixXd eigenvalues, int k){
+
+    std::vector<int> eigen_indices;
+    cv::Mat samples(eigenvectors.rows() , k, CV_32F, 0.0);
+
+    // <eigenvalue, index_in_matrix>
+    std::multimap<double,int> eigenvalues_map;
+
+    int OriginalNumberOfClusters = eigenvalues.rows();
+    for(int i = 0; i < OriginalNumberOfClusters; i++){
+        double number = eigenvalues(i);
+        eigenvalues_map.insert(std::pair<double,int>(number, i));
+    }
+
+    cout << "Test sorting :" << endl;
+    int sorted_index = 0;
+    for(std::multimap<double,int>::iterator it = eigenvalues_map.begin(); it != eigenvalues_map.end(); ++it){
+        int old_index = it->second;
+        cout << it->first << " , " <<  old_index << endl;
+       // cout << eigenvectors.col(old_index) << endl;
+
+        for(int i = 0; i < eigenvectors.rows(); i++){
+            double number = eigenvectors(i, old_index) ;
+            samples.at<float>(i, sorted_index) = number;
+        }
+
+        sorted_index ++;
+        if(sorted_index >= k) break;
+
+    }
+
+
+    cout << samples << endl;
+
+    return samples;
+}
+
+
+Eigen::MatrixXd complexToFloatMatrix(Eigen::MatrixXcd matrix){
+
+    using namespace Eigen;
+    MatrixXd float_matrix;
+    float_matrix.resize(matrix.rows(),matrix.cols());
+
+    for(int i = 0; i < matrix.rows(); i++){
+        for(int j = 0; j < matrix.cols(); j++){
+            std::complex<double> vec = matrix(i,j);
+            double real = vec.real();
+            double im = vec.imag();
+            float_matrix(i,j) = real;
+        }
+    }
+
+    return float_matrix;
+}
+
+
 
 Eigen::VectorXd kmeans_clustering(Eigen::MatrixXd normalizedLaplacianMatrix){
 
@@ -1413,39 +1470,48 @@ Eigen::VectorXd kmeans_clustering(Eigen::MatrixXd normalizedLaplacianMatrix){
 
 
     MatrixXcd eigenvectors_matrix = es.eigenvectors();
+    MatrixXcd eigenvalues_matrix = es.eigenvalues();
 
-    // Check which eigenvalues are under the threshold
-    std::vector<int> eigen_indices;
+    MatrixXd eigenvectors_matrix_real = complexToFloatMatrix(eigenvectors_matrix);
+    printEigenMatrix(eigenvectors_matrix_real, "Eigenvectors");
 
-    //    cout << "Eigenvalues :" << endl;
-    for(int i = 0; i < OriginalNumberOfClusters; i++){
-        //int val = es.eigenvalues().col(1).row(1).value();
-        std::complex<double> vec = es.eigenvalues()(i);
-        double real = vec.real();
-        double im = vec.imag();
+    MatrixXd eigenvalues_matrix_real = complexToFloatMatrix(eigenvalues_matrix);
+    printEigenMatrix(eigenvalues_matrix_real, "Eigenvalues");
 
-        if(real < KMEANS_EIGENVALUE_THRESHOLD && im == 0){
-            eigen_indices.push_back(i);
-            //            cout << real << " "   << i << endl;
-        }
-    }
+    cv::Mat samples = retrieveKsmallestEigenvectors(eigenvectors_matrix_real, eigenvalues_matrix_real, 8);
 
-     // Retrieve the eigenvectors and make an opencv matrix with it
+//    // Check which eigenvalues are under the threshold
+//    std::vector<int> eigen_indices;
 
-    int numberOfEigenVectors = eigen_indices.size();
-    cv::Mat samples(eigenvectors_matrix.rows() , numberOfEigenVectors, CV_32F, 0.0);
+//    //    cout << "Eigenvalues :" << endl;
+//    for(int i = 0; i < OriginalNumberOfClusters; i++){
+//        //int val = es.eigenvalues().col(1).row(1).value();
+//        std::complex<double> vec = es.eigenvalues()(i);
+//        double real = vec.real();
+//        double im = vec.imag();
 
-    for(int i=0; i < numberOfEigenVectors; i++){
-        int eigenColumn = eigen_indices.at(i);
-        //        cout << "Column : " << eigenColumn << endl;
+//        if(real < KMEANS_EIGENVALUE_THRESHOLD && im == 0){
+//            eigen_indices.push_back(i);
+//            //            cout << real << " "   << i << endl;
+//        }
+//    }
 
-        for(int j=0; j < OriginalNumberOfClusters; j++){
-            std::complex<double> comp = eigenvectors_matrix(j, eigenColumn) ;
-            samples.at<float>(j,i) = comp.real();
-            //            cout << comp.real() << endl;
-        }
+//     // Retrieve the eigenvectors and make an opencv matrix with it
 
-    }
+//    int numberOfEigenVectors = eigen_indices.size();
+//    cv::Mat samples(eigenvectors_matrix.rows() , numberOfEigenVectors, CV_32F, 0.0);
+
+//    for(int i=0; i < numberOfEigenVectors; i++){
+//        int eigenColumn = eigen_indices.at(i);
+//        //        cout << "Column : " << eigenColumn << endl;
+
+//        for(int j=0; j < OriginalNumberOfClusters; j++){
+//            std::complex<double> comp = eigenvectors_matrix(j, eigenColumn) ;
+//            samples.at<float>(j,i) = comp.real();
+//            //            cout << comp.real() << endl;
+//        }
+
+//    }
 
 
     cout << samples << endl;
@@ -1454,7 +1520,14 @@ Eigen::VectorXd kmeans_clustering(Eigen::MatrixXd normalizedLaplacianMatrix){
     int attempts = 5;
     cv::Mat centers;
 
-    cv::kmeans(samples, KMEANS_NUMBER_OF_CLUSTERS, labels, cv::TermCriteria(CV_TERMCRIT_ITER|CV_TERMCRIT_EPS, 10000, 0.0001), attempts, cv::KMEANS_PP_CENTERS, centers );
+
+    std::vector<double> kmeans_score;
+    for(int k = 1; k < 12; k++){
+        double distance = cv::kmeans(samples, k, labels, cv::TermCriteria(CV_TERMCRIT_ITER|CV_TERMCRIT_EPS, 10000, 0.0001), attempts, cv::KMEANS_PP_CENTERS, centers );
+        cout << "Kmeans score (k = " << k << ") : " << distance << endl;
+    }
+
+    //cv::kmeans(samples, KMEANS_NUMBER_OF_CLUSTERS, labels, cv::TermCriteria(CV_TERMCRIT_ITER|CV_TERMCRIT_EPS, 10000, 0.0001), attempts, cv::KMEANS_PP_CENTERS, centers );
 
 
     cout << "Output Kmeans(" << KMEANS_NUMBER_OF_CLUSTERS << ") :" << endl;

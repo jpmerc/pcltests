@@ -1,4 +1,4 @@
-function [C, L, U] = SpectralClustering(W, k, Type)
+function [C, L, U] = SpectralClustering(W, k_eigen, k_clusters, Type)
 %SPECTRALCLUSTERING Executes spectral clustering algorithm
 %   Executes the spectral clustering algorithm defined by
 %   Type on the adjacency matrix W and returns the k cluster
@@ -21,6 +21,8 @@ function [C, L, U] = SpectralClustering(W, k, Type)
 %   Author: Ingo Buerk
 %   Year  : 2011/2012
 %   Bachelor Thesis
+%
+%   Modified by : Jean-Philippe Mercier, Laval University (2015)
 
 % calculate degree matrix
 degs = sum(W, 2);
@@ -51,8 +53,13 @@ end
 
 % compute the eigenvectors corresponding to the k smallest
 % eigenvalues
-diff   = eps;
-[U, ~] = eigs(L, k, diff);
+[U Values] = eig(L);
+[Values order] = sort(diag(Values),'ascend');  %# sort eigenvalues in descending order
+U = U(:,order);
+U = U(:, 1:k_eigen);
+
+%diff   = eps;
+%[U, ~] = eigs(L, k, diff);
 
 % in case of the Jordan-Weiss algorithm, we need to normalize
 % the eigenvectors row-wise
@@ -63,11 +70,12 @@ end
 % now use the k-means algorithm to cluster U row-wise
 % C will be a n-by-1 matrix containing the cluster number for
 % each data point
-C = kmeans(U, k, 'start', 'cluster', ...
-                 'EmptyAction', 'singleton');
+%C = kmeans(U, k, 'start', 'cluster', 'EmptyAction', 'singleton');
+             
+C = kmeans(U, k_clusters);             
              
 % now convert C to a n-by-k matrix containing the k indicator
 % vectors as columns
-C = sparse(1:size(D, 1), C, 1);
+%C = sparse(1:size(D, 1), C, 1);
 
 end
