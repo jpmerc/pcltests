@@ -1447,6 +1447,41 @@ Eigen::MatrixXd complexToFloatMatrix(Eigen::MatrixXcd matrix){
 }
 
 
+int findElbowIndex(std::vector<double> *distances){
+
+
+    /// Find the most distant point
+
+    int vectorLastIndex = distances->size() - 1;
+    // slope = (y2-y1)/(x2-x1)
+    double slope = (distances->at(vectorLastIndex) - distances->at(0)) / (vectorLastIndex - 0);
+    double intercept =  distances->at(0);
+
+    double A = slope;
+    double B = -1.0;
+    double C = intercept;
+
+    double largestDistance = 0;
+    int largestDistanceIndex = -1;
+
+    for(int i = 0; i < distances->size(); i++){
+
+        double numerator = std::abs( A*i + B*distances->at(i) + C );
+        double denominator = sqrt(A*A + B*B);
+        double ptToLineDistance = numerator / denominator;
+
+        if(ptToLineDistance >= largestDistance){
+            // added a little offset to advantage more clusters (better to oversegment than undersegment in our cas)
+            largestDistance = ptToLineDistance - 0.1;
+            largestDistanceIndex = i;
+        }
+
+        cout << ptToLineDistance << endl;
+    }
+
+    return largestDistanceIndex;
+}
+
 
 Eigen::VectorXd kmeans_clustering(Eigen::MatrixXd normalizedLaplacianMatrix){
 
@@ -1478,42 +1513,11 @@ Eigen::VectorXd kmeans_clustering(Eigen::MatrixXd normalizedLaplacianMatrix){
     MatrixXd eigenvalues_matrix_real = complexToFloatMatrix(eigenvalues_matrix);
     printEigenMatrix(eigenvalues_matrix_real, "Eigenvalues");
 
-    cv::Mat samples = retrieveKsmallestEigenvectors(eigenvectors_matrix_real, eigenvalues_matrix_real, 8);
+    // Calculate number of eigenvectors to keep
+    int NumberOfEigenvectors = ceil(OriginalNumberOfClusters / 2);
+    if(NumberOfEigenvectors > 12) NumberOfEigenvectors = 12;
 
-//    // Check which eigenvalues are under the threshold
-//    std::vector<int> eigen_indices;
-
-//    //    cout << "Eigenvalues :" << endl;
-//    for(int i = 0; i < OriginalNumberOfClusters; i++){
-//        //int val = es.eigenvalues().col(1).row(1).value();
-//        std::complex<double> vec = es.eigenvalues()(i);
-//        double real = vec.real();
-//        double im = vec.imag();
-
-//        if(real < KMEANS_EIGENVALUE_THRESHOLD && im == 0){
-//            eigen_indices.push_back(i);
-//            //            cout << real << " "   << i << endl;
-//        }
-//    }
-
-//     // Retrieve the eigenvectors and make an opencv matrix with it
-
-//    int numberOfEigenVectors = eigen_indices.size();
-//    cv::Mat samples(eigenvectors_matrix.rows() , numberOfEigenVectors, CV_32F, 0.0);
-
-//    for(int i=0; i < numberOfEigenVectors; i++){
-//        int eigenColumn = eigen_indices.at(i);
-//        //        cout << "Column : " << eigenColumn << endl;
-
-//        for(int j=0; j < OriginalNumberOfClusters; j++){
-//            std::complex<double> comp = eigenvectors_matrix(j, eigenColumn) ;
-//            samples.at<float>(j,i) = comp.real();
-//            //            cout << comp.real() << endl;
-//        }
-
-//    }
-
-
+    cv::Mat samples = retrieveKsmallestEigenvectors(eigenvectors_matrix_real, eigenvalues_matrix_real, NumberOfEigenvectors);
     cout << samples << endl;
 
     cv::Mat labels;
@@ -1522,12 +1526,29 @@ Eigen::VectorXd kmeans_clustering(Eigen::MatrixXd normalizedLaplacianMatrix){
 
 
     std::vector<double> kmeans_score;
-    for(int k = 1; k < 12; k++){
-        double distance = cv::kmeans(samples, k, labels, cv::TermCriteria(CV_TERMCRIT_ITER|CV_TERMCRIT_EPS, 10000, 0.0001), attempts, cv::KMEANS_PP_CENTERS, centers );
-        cout << "Kmeans score (k = " << k << ") : " << distance << endl;
-    }
+    cout << "kmeans_scores = [ " << endl;
 
-    //cv::kmeans(samples, KMEANS_NUMBER_OF_CLUSTERS, labels, cv::TermCriteria(CV_TERMCRIT_ITER|CV_TERMCRIT_EPS, 10000, 0.0001), attempts, cv::KMEANS_PP_CENTERS, centers );
+    bool roundToZero = false;
+    for(int k = 2; k < OriginalNumberOfClusters; k++){
+        if(!roundToZero){
+            double distance = cv::kmeans(samples, k, labels, cv::TermCriteria(CV_TERMCRIT_ITER|CV_TERMCRIT_EPS, 10000, 0.00001), attempts, cv::KMEANS_PP_CENTERS, centers );
+            kmeans_score.push_back(distance);
+            if(distance < 0.001) roundToZero = true;
+            //cout << "Kmeans score (k = " << k << ") : " << distance << endl;
+            cout << k << " " << distance << ";" << endl;
+        }
+        else{
+            double distance = 0.0;
+            kmeans_score.push_back(distance);
+            cout << k << " " << distance << ";" << endl;
+        }
+    }
+    cout << "];" << endl;
+
+
+    int numberOfClusters = findElbowIndex(&kmeans_score) + 2;
+    cout << "From compactness, " << numberOfClusters << " clusters were found in the graph. " << endl;
+    cv::kmeans(samples, numberOfClusters, labels, cv::TermCriteria(CV_TERMCRIT_ITER|CV_TERMCRIT_EPS, 10000, 0.00001), attempts, cv::KMEANS_PP_CENTERS, centers );
 
 
     cout << "Output Kmeans(" << KMEANS_NUMBER_OF_CLUSTERS << ") :" << endl;
@@ -1791,7 +1812,7 @@ int main (int argc, char** argv){
     pcl::PointCloud<PointT>::Ptr model_cloud(new pcl::PointCloud<PointT>);
 
     pcl::io::loadPCDFile("../bmw_clutter_remaining.pcd", *scene_cloud);
- //   pcl::io::loadPCDFile("/home/jp/Downloads/OSD-0.2/pcd/test55.pcd", *scene_cloud);
+  //  pcl::io::loadPCDFile("/home/jp/Downloads/OSD-0.2/pcd/test55.pcd", *scene_cloud);
 
     //    pcl::io::loadPCDFile("../customAlignment_fine.pcd", *model_cloud);
 
