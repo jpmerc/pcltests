@@ -102,6 +102,8 @@ std::map<int, std::vector<int> > findNeighbors(std::map<int, std::vector<int> > 
                                                std::multimap<int, int> *adjacencyNewClusters,
                                                std::multimap<int, int> *previousAdjacency);
 
+Eigen::VectorXd cutGraph(Eigen::MatrixXd normalizedLaplacianMatrix, std::map<int, pcl::Supervoxel<pcl::PointXYZRGBA>::Ptr> *voxels, std::multimap<int, int> *adjacency);
+
 void initPCLViewer(){
     //PCL Viewer
     //pclViewer->registerKeyboardCallback (keyboardEventOccurred, (void*)&pclViewer);
@@ -433,77 +435,6 @@ void addSupervoxelConnectionsToViewer (pcl::PointXYZRGBA &supervoxel_center,
     polyData->SetLines (cells);
 
     viewer->addModelFromPolyData (polyData,supervoxel_name);
-}
-
-void superVoxels(pcl::PointCloud<pcl::PointXYZRGBA>::Ptr cloud){
-
-    typedef pcl::PointXYZRGBA PointT;
-    typedef pcl::PointCloud<PointT> PointCloudT;
-    typedef pcl::PointNormal PointNT;
-    typedef pcl::PointCloud<PointNT> PointNCloudT;
-    typedef pcl::PointXYZL PointLT;
-    typedef pcl::PointCloud<PointLT> PointLCloudT;
-
-    pcl::ScopeTime t("Segmentation in Supervoxels");
-
-    double voxel_resolution = 0.01;
-    double seed_resolution = 0.05;
-    bool use_transform = true;
-    double color_importance = 0.2;
-    double spatial_importance = 0.4;
-    double normal_importance = 1;
-
-    pcl::SupervoxelClustering<PointT> super (voxel_resolution, seed_resolution, use_transform);
-    super.setInputCloud (cloud);
-    super.setColorImportance (color_importance);
-    super.setSpatialImportance (spatial_importance);
-    super.setNormalImportance (normal_importance);
-
-    std::map <uint32_t, pcl::Supervoxel<PointT>::Ptr > supervoxel_clusters;
-    super.extract (supervoxel_clusters);
-    //super.refineSupervoxels(10, supervoxel_clusters);
-    pcl::console::print_info ("Found %d supervoxels\n", supervoxel_clusters.size ());
-
-
-    // Voxel Cloud Colors
-    PointCloudT::Ptr colored_cloud = super.getColoredVoxelCloud ();
-    pclViewer3->addPointCloud (colored_cloud, "colored voxels");
-    pclViewer3->setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_OPACITY, 1, "colored voxels");
-
-    // Voxel Graph
-    std::multimap<uint32_t, uint32_t> supervoxel_adjacency;
-    super.getSupervoxelAdjacency (supervoxel_adjacency);
-
-
-    // Print Graph Connectivity
-    std::multimap<uint32_t,uint32_t>::iterator label_itr = supervoxel_adjacency.begin ();
-    for ( ; label_itr != supervoxel_adjacency.end (); )
-    {
-        //First get the label
-        uint32_t supervoxel_label = label_itr->first;
-        //Now get the supervoxel corresponding to the label
-        pcl::Supervoxel<PointT>::Ptr supervoxel = supervoxel_clusters.at(supervoxel_label);
-
-        //Now we need to iterate through the adjacent supervoxels and make a point cloud of them
-        PointCloudT adjacent_supervoxel_centers;
-        std::multimap<uint32_t,uint32_t>::iterator adjacent_itr = supervoxel_adjacency.equal_range (supervoxel_label).first;
-        for ( ; adjacent_itr!=supervoxel_adjacency.equal_range (supervoxel_label).second; ++adjacent_itr)
-        {
-            pcl::Supervoxel<PointT>::Ptr neighbor_supervoxel = supervoxel_clusters.at (adjacent_itr->second);
-            adjacent_supervoxel_centers.push_back (neighbor_supervoxel->centroid_);
-        }
-        //Now we make a name for this polygon
-        std::stringstream ss;
-        ss << "supervoxel_" << supervoxel_label;
-        //This function is shown below, but is beyond the scope of this tutorial - basically it just generates a "star" polygon mesh from the points given
-        addSupervoxelConnectionsToViewer (supervoxel->centroid_, adjacent_supervoxel_centers, ss.str (), pclViewer3);
-        //Move iterator forward to next label
-        label_itr = supervoxel_adjacency.upper_bound (supervoxel_label);
-    }
-
-
-
-
 }
 
 
@@ -1184,6 +1115,8 @@ double numberOfSameNeighbors(std::multimap<int, int> *adjacency, int id1, int id
 }
 
 
+
+
 void spectralClustering(std::map<int, pcl::Supervoxel<pcl::PointXYZRGBA>::Ptr> *voxels, std::multimap<int, int> *adjacency){
 
     using namespace Eigen;
@@ -1275,7 +1208,7 @@ void spectralClustering(std::map<int, pcl::Supervoxel<pcl::PointXYZRGBA>::Ptr> *
                 double sigma = 0.05;
                 double squared_norm = (c1 - c2).squaredNorm();
                 double val = exp(-squared_norm / (2*sigma*sigma));
-                //double inverse_quadratic = 1 / (1 + 500 * squared_norm);
+                double inverse_quadratic = 1 / (1 + 500 * squared_norm);
 
 //                double sameNeighbors = numberOfSameNeighbors(adjacency, id1, id2);
 //                double neighborhood_score = 1.5 * log(sameNeighbors + 1);
@@ -1355,6 +1288,9 @@ void spectralClustering(std::map<int, pcl::Supervoxel<pcl::PointXYZRGBA>::Ptr> *
     printEigenMatrix(D_inverse, "Degree inverse Matrix");
     printEigenMatrix(Connections, "Connections Matrix (not used in code, only for information purposes)");
 
+
+
+
 //    cout << "Degree Matrix root" << endl;
 //    cout << D_root  << endl;
 
@@ -1366,6 +1302,9 @@ void spectralClustering(std::map<int, pcl::Supervoxel<pcl::PointXYZRGBA>::Ptr> *
 
 
     VectorXd new_labels = kmeans_clustering(normalizedLaplacian);
+
+    cutGraph(normalizedLaplacian, voxels, adjacency);
+
 
     std::map<int, pcl::Supervoxel<pcl::PointXYZRGBA>::Ptr> new_supervoxels;
 
@@ -1427,6 +1366,39 @@ cv::Mat retrieveKsmallestEigenvectors(Eigen::MatrixXd eigenvectors, Eigen::Matri
     return samples;
 }
 
+Eigen::MatrixXd sortEigenvectors(Eigen::MatrixXd eigenvectors, Eigen::MatrixXd eigenvalues){
+    using namespace Eigen;
+
+    MatrixXd sorted_eigenvectors;
+
+    // <eigenvalue, index_in_matrix>
+    std::multimap<double,int> eigenvalues_map;
+
+    int OriginalNumberOfClusters = eigenvalues.rows();
+    for(int i = 0; i < OriginalNumberOfClusters; i++){
+        double number = eigenvalues(i);
+        eigenvalues_map.insert(std::pair<double,int>(number, i));
+    }
+
+    cout << "Test sorting :" << endl;
+    int numberOfCols = eigenvectors.cols();
+    int sorted_index = 0;
+    for(std::multimap<double,int>::iterator it = eigenvalues_map.begin(); it != eigenvalues_map.end(); ++it){
+        int old_index = it->second;
+        cout << it->first << " , " <<  old_index << endl;
+       // cout << eigenvectors.col(old_index) << endl;
+
+        for(int i = 0; i < eigenvectors.rows(); i++){
+            double number = eigenvectors(i, old_index) ;
+            sorted_eigenvectors(i, sorted_index) = number;
+        }
+
+        sorted_index ++;
+        if(sorted_index >= numberOfCols) break;
+    }
+
+    return sorted_eigenvectors;
+}
 
 Eigen::MatrixXd complexToFloatMatrix(Eigen::MatrixXcd matrix){
 
@@ -1482,43 +1454,165 @@ int findElbowIndex(std::vector<double> *distances){
     return largestDistanceIndex;
 }
 
+void eigenDecomposition(Eigen::MatrixXd MatrixToDecompose, Eigen::MatrixXd &eigenvectors, Eigen::MatrixXd &eigenvalues){
+    using namespace Eigen;
+
+    EigenSolver<MatrixXd> es(MatrixToDecompose);
+
+    MatrixXcd eigenvectors_matrix = es.eigenvectors();
+    MatrixXcd eigenvalues_matrix = es.eigenvalues();
+
+    cout << "Eigenvalues :" << endl;
+    cout <<  es.eigenvalues() << endl;
+
+    eigenvectors = complexToFloatMatrix(eigenvectors_matrix);
+    printEigenMatrix(eigenvectors, "Eigenvectors");
+
+    eigenvalues = complexToFloatMatrix(eigenvalues_matrix);
+    printEigenMatrix(eigenvalues, "Eigenvalues");
+}
+
+
+
+
+// Adds neighbors (no condition)
+void addConnectedComponents(std::map<int, std::vector<int> > *adjacency,
+                  std::map<int, std::vector<int> > *new_clusters,
+                  std::vector<int> *processed_indices,
+                  int index,
+                  int cluster_index){
+
+    if(adjacency->count(index) > 0){
+        std::vector<int> neighbors_indices = adjacency->at(index);
+
+        for(int i = 0; i < neighbors_indices.size(); i++){
+
+            int neighbor_index = neighbors_indices.at(i);
+
+            // Check if the point has already been processed to avoid being stuck in infinite loop
+            if (std::find(processed_indices->begin(), processed_indices->end(), neighbor_index) == processed_indices->end()){
+
+                processed_indices->push_back(neighbor_index);
+
+                // Check if the index is already present in the vector
+                std::vector<int> indices = new_clusters->at(cluster_index);
+                if(std::find(indices.begin(), indices.end(), neighbor_index) == indices.end()) {
+                    //not present
+                    indices.push_back(neighbor_index);
+                    new_clusters->at(cluster_index) = indices;
+
+                    addConnectedComponents(adjacency, new_clusters, processed_indices, neighbor_index, cluster_index);
+                }
+            }
+        }
+    }
+
+
+}
+
+// Find connected components
+std::map<int, std::vector<int> > findConnectedComponents(std::map<int, std::vector<int> > *adjacency, std::map<int, pcl::Supervoxel<pcl::PointXYZRGBA>::Ptr> *supervoxels)
+{
+
+    int new_cluster_index = 0;
+    std::map<int, std::vector<int> > new_clusters;
+
+    for(std::map<int, pcl::Supervoxel<pcl::PointXYZRGBA>::Ptr>::iterator it = supervoxels->begin(); it != supervoxels->end(); ++it){
+        int first = it->first;
+        if(new_clusters.size() == 0){
+            std::vector<int> v;
+            v.push_back(first);
+            new_clusters[new_cluster_index] = v;
+            addConnectedComponents(adjacency, &new_clusters, &v, first, new_cluster_index);
+            new_cluster_index++;
+        }
+
+        else{
+            bool found = false;
+            for(std::map<int, std::vector<int> >::iterator it2 = new_clusters.begin(); it2 != new_clusters.end(); ++it2){
+                std::vector<int> indices = it2->second;
+                if(std::find(indices.begin(), indices.end(), first) != indices.end()) {
+                    found = true;
+                    break;
+                }
+            }
+
+            if(!found){
+                std::vector<int> v;
+                v.push_back(first);
+                new_clusters[new_cluster_index] = v;
+                addConnectedComponents(adjacency, &new_clusters, &v, first, new_cluster_index);
+                new_cluster_index++;
+            }
+        }
+    }
+
+
+
+    return new_clusters;
+}
+
+
+
+
+
+
+Eigen::VectorXd cutGraph(Eigen::MatrixXd normalizedLaplacianMatrix, std::map<int, pcl::Supervoxel<pcl::PointXYZRGBA>::Ptr> *voxels, std::multimap<int, int> *adjacency){
+
+    using namespace Eigen;
+
+    // Get Eigenvectors and Eigenvalues
+    MatrixXd eigenvectors_matrix;
+    MatrixXd eigenvalues_matrix;
+    eigenDecomposition(normalizedLaplacianMatrix, eigenvectors_matrix, eigenvalues_matrix);
+
+    // Initialize labels with connected components
+    std::map<int, std::vector<int> > adjacency_map = convertMultimapToMap<int,int>(adjacency);
+    std::map<int, std::vector<int> > connected_components = findConnectedComponents(&adjacency_map, voxels);
+    printMap(&connected_components, "Connected Components");
+
+
+    // Loop over the eigenvectors to discover cut hypotheses and test NCut on hypotheses
+    // test only with first eigenvector to start
+    MatrixXd sorted_vectors = sortEigenvectors(eigenvectors_matrix, eigenvalues_matrix);
+
+    // Return labels of each vertex
+
+
+}
+
+
 
 Eigen::VectorXd kmeans_clustering(Eigen::MatrixXd normalizedLaplacianMatrix){
 
     using namespace Eigen;
 
-    EigenSolver<MatrixXd> es(normalizedLaplacianMatrix);
 
-    int OriginalNumberOfClusters = es.eigenvalues().rows();
-
-
-    cout << "Eigenvalues :" << endl;
-    cout <<  es.eigenvalues() << endl;
-
-
-    //   cout << "Eigenvectors :" << endl;
-    //    cout <<  es.eigenvectors().col(15) << endl;
+    // Get Eigenvectors and Eigenvalues
+    MatrixXd eigenvectors_matrix;
+    MatrixXd eigenvalues_matrix;
+    eigenDecomposition(normalizedLaplacianMatrix, eigenvectors_matrix, eigenvalues_matrix);
+    int OriginalNumberOfClusters = eigenvectors_matrix.rows();
 
 
-    //    cout << "value : " << endl;
-    //    cout << es.eigenvalues()(1) << endl;
+    MatrixXd test;
+    test.resize(3,3);
+    test.setZero();
+    test(0,0) = 1 / sqrt(4);
+    test(1,1) = 1 / sqrt(6);
+    test(2,2) = 1 / sqrt(9);
+    EigenSolver<MatrixXd> eig(test);
+    cout << "TEST EIGENVALUES : "  << endl;
+    cout << eig.eigenvalues() << endl;
+    cout << "TEST EIGENVECTORS : " << endl;
+    cout << eig.eigenvectors() << endl;
 
-
-    MatrixXcd eigenvectors_matrix = es.eigenvectors();
-    MatrixXcd eigenvalues_matrix = es.eigenvalues();
-
-    MatrixXd eigenvectors_matrix_real = complexToFloatMatrix(eigenvectors_matrix);
-    printEigenMatrix(eigenvectors_matrix_real, "Eigenvectors");
-
-    MatrixXd eigenvalues_matrix_real = complexToFloatMatrix(eigenvalues_matrix);
-    printEigenMatrix(eigenvalues_matrix_real, "Eigenvalues");
 
     // Calculate number of eigenvectors to keep
     int NumberOfEigenvectors = ceil(OriginalNumberOfClusters / 2);
     if(NumberOfEigenvectors > 12) NumberOfEigenvectors = 12;
 
-    cv::Mat samples = retrieveKsmallestEigenvectors(eigenvectors_matrix_real, eigenvalues_matrix_real, NumberOfEigenvectors);
-    cout << samples << endl;
+    cv::Mat samples = retrieveKsmallestEigenvectors(eigenvectors_matrix, eigenvalues_matrix, NumberOfEigenvectors);
 
     cv::Mat labels;
     int attempts = 5;
@@ -1547,6 +1641,7 @@ Eigen::VectorXd kmeans_clustering(Eigen::MatrixXd normalizedLaplacianMatrix){
 
 
     int numberOfClusters = findElbowIndex(&kmeans_score) + 2;
+    //numberOfClusters  = 4;
     cout << "From compactness, " << numberOfClusters << " clusters were found in the graph. " << endl;
     cv::kmeans(samples, numberOfClusters, labels, cv::TermCriteria(CV_TERMCRIT_ITER|CV_TERMCRIT_EPS, 10000, 0.00001), attempts, cv::KMEANS_PP_CENTERS, centers );
 
@@ -1812,7 +1907,7 @@ int main (int argc, char** argv){
     pcl::PointCloud<PointT>::Ptr model_cloud(new pcl::PointCloud<PointT>);
 
     pcl::io::loadPCDFile("../bmw_clutter_remaining.pcd", *scene_cloud);
-  //  pcl::io::loadPCDFile("/home/jp/Downloads/OSD-0.2/pcd/test55.pcd", *scene_cloud);
+    //pcl::io::loadPCDFile("/home/jp/Downloads/OSD-0.2/pcd/test31.pcd", *scene_cloud);
 
     //    pcl::io::loadPCDFile("../customAlignment_fine.pcd", *model_cloud);
 
