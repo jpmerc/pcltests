@@ -39,7 +39,7 @@ float normals_scale;
 
 ///  Default values of parameters before parsing
 // Supervoxel Stuff
-float voxel_resolution = 0.01f;
+float voxel_resolution = 0.005f;
 float seed_resolution = 0.02f;
 float color_importance = 0.1f;
 float spatial_importance = 0.1f;
@@ -156,7 +156,7 @@ pcl::PointCloud<PointT>::Ptr extractPlane(pcl::PointCloud<PointT>::Ptr cloud, bo
 int main (int argc, char** argv)
 {
     pcl::PointCloud<PointT>::Ptr cloud (new pcl::PointCloud<PointT>),
-            cloud_filtered (new pcl::PointCloud<PointT>),
+            cloud_modified (new pcl::PointCloud<PointT>),
             cloud_filtered_translated (new pcl::PointCloud<PointT>);
 
 
@@ -172,7 +172,14 @@ int main (int argc, char** argv)
     pass_filter.filter(*temp_cloud);
     cloud = extractPlane(temp_cloud, true);
 
-
+//    // Depth Dependent Voxel Grid (DDVG)
+//    for(int i=0; i < cloud->size(); i++){
+//        PointT pt = cloud->at(i);
+//        pt.x = pt.x / pt.z;
+//        pt.y = pt.y / pt.z;
+//        pt.z = log(pt.z);
+//        cloud->at(i) = pt;
+//    }
 
 
     // Params
