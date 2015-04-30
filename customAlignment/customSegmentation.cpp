@@ -1676,6 +1676,14 @@ std::multimap<int,int> getGraphCutHypotheses(Eigen::MatrixXd eigenVectors, std::
     return hypotheses;
 }
 
+
+void normalizedCut(std::map<int, std::vector<int> > *initial_graph, std::multimap<int,int> *cut_hypotheses){
+
+
+    /// Code normalized cut!!
+
+}
+
 Eigen::VectorXd cutGraph(Eigen::MatrixXd normalizedLaplacianMatrix, std::map<int, pcl::Supervoxel<pcl::PointXYZRGBA>::Ptr> *voxels, std::multimap<int, int> *adjacency){
 
     using namespace Eigen;
@@ -1697,7 +1705,7 @@ Eigen::VectorXd cutGraph(Eigen::MatrixXd normalizedLaplacianMatrix, std::map<int
 
 
     // Evaluate Hypotheses to select the best cut candidates
-
+    normalizedCut(&connected_components, &cut_hypotheses);
 
 
     // Return labels of each vertex
