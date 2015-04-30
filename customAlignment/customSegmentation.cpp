@@ -62,6 +62,13 @@ boost::shared_ptr<pcl::visualization::PCLVisualizer> pclViewer4 (new pcl::visual
 boost::shared_ptr<pcl::visualization::PCLVisualizer> pclViewer5 (new pcl::visualization::PCLVisualizer ("3D Viewer5"));
 
 
+// global matrices (not best implementation, but doing fast prototyping!!)
+using namespace Eigen;
+MatrixXd DegreesMatrix;
+MatrixXd AdjacencyMatrix;
+
+
+
 /// LIST OF PARAMETERS
 double FACETS_SIMILARITY_THRESHOLD = 0.99;
 
@@ -1288,6 +1295,8 @@ void spectralClustering(std::map<int, pcl::Supervoxel<pcl::PointXYZRGBA>::Ptr> *
     printEigenMatrix(D_inverse, "Degree inverse Matrix");
     printEigenMatrix(Connections, "Connections Matrix (not used in code, only for information purposes)");
 
+    DegreesMatrix = D;
+    AdjacencyMatrix = W;
 
 
 
@@ -1343,7 +1352,7 @@ cv::Mat retrieveKsmallestEigenvectors(Eigen::MatrixXd eigenvectors, Eigen::Matri
         eigenvalues_map.insert(std::pair<double,int>(number, i));
     }
 
-    cout << "Test sorting :" << endl;
+    cout << "cv::orting :" << endl;
     int sorted_index = 0;
     for(std::multimap<double,int>::iterator it = eigenvalues_map.begin(); it != eigenvalues_map.end(); ++it){
         int old_index = it->second;
@@ -1370,6 +1379,8 @@ Eigen::MatrixXd sortEigenvectors(Eigen::MatrixXd eigenvectors, Eigen::MatrixXd e
     using namespace Eigen;
 
     MatrixXd sorted_eigenvectors;
+    sorted_eigenvectors.resize(eigenvectors.rows(), eigenvectors.cols());
+    sorted_eigenvectors.setZero();
 
     // <eigenvalue, index_in_matrix>
     std::multimap<double,int> eigenvalues_map;
@@ -1554,8 +1565,116 @@ std::map<int, std::vector<int> > findConnectedComponents(std::map<int, std::vect
 
 
 
+cv::Mat eigenToCVMat(Eigen::MatrixXd matrix){
+
+    cv::Mat cv_mat(matrix.rows() , matrix.cols(), CV_32F, 0.0);
+
+    for(int i = 0; i < matrix.rows(); i++){
+        for(int j = 0; j < matrix.cols(); j++){
+            double number = matrix(i, j) ;
+            cv_mat.at<float>(i, j) = number;
+        }
+    }
+
+    return cv_mat;
+}
+
+void updateConnectivityMatrix(Eigen::MatrixXd &connectivity, std::multimap<int,int> *label_map){
+
+    int index = 0;
+    std::vector<int> indices;
+    for(std::multimap<int,int>::iterator it = label_map->begin(); it != label_map->end(); ++it){
+        int first = it->first;
+        int second = it->second;
+        cout <<  first << " .. " << second << endl;
+
+        if(first == index){
+            if(!indices.empty()){
+                for(int i = 0; i < indices.size(); i++){
+                    int id = indices.at(i);
+                    connectivity(id, second) = connectivity(id, second) + 1;
+                    connectivity(second, id) = connectivity(second, id) + 1;
+                }
+
+            }
+            indices.push_back(second);
+
+        }
+
+        else{
+            index++;
+            indices.clear();
+            indices.push_back(second);
+        }
+    }
+
+}
+
+void updateCutHypotheses(Eigen::MatrixXd &connectivity, std::multimap<int,int> *adjacency, std::multimap<int,int> *hypotheses){
 
 
+    for(std::multimap<int,int>::iterator it = adjacency->begin(); it != adjacency->end(); ++it){
+        int first = it->first;
+        int second = it->second;
+        int numberOfTimesInSameCluster = connectivity(first,second);
+        if(numberOfTimesInSameCluster <= 2){
+            // Have been separated at least one time (for k = 2..4 clusters)
+            addPairToMultimapWithoutDoublons(hypotheses, first, second, false);
+        }
+    }
+}
+
+
+std::multimap<int,int> getGraphCutHypotheses(Eigen::MatrixXd eigenVectors, std::multimap<int, int> *adjacency){
+
+    using namespace Eigen;
+
+    std::multimap<int,int> hypotheses;
+
+    // Loop over the eigenvectors to discover cut hypotheses and test NCut on hypotheses
+    //for(int i = 0; i < sorted_vectors; i++){
+    for(int i = 0; i < 10; i++){
+        // Column i
+        //std::map<double, int> ordered_data; //<data,index>
+        MatrixXd eigen_column = eigenVectors.col(i);
+        cv::Mat cv_eigen_col = eigenToCVMat(eigen_column);
+
+        MatrixXd connectivity;
+        connectivity.resize(eigenVectors.rows(),eigenVectors.rows());
+        connectivity.setZero();
+
+        cv::Mat labels;
+        int attempts = 5;
+        cv::Mat centers;
+
+        cout << "kmeans_linear" << endl;
+        for(int k = 2; k < 5; k++){
+            double distance = cv::kmeans(cv_eigen_col, k, labels, cv::TermCriteria(CV_TERMCRIT_ITER|CV_TERMCRIT_EPS, 10000, 0.00001), attempts, cv::KMEANS_PP_CENTERS, centers );
+           // cout << k << " " << distance << ";" << endl;
+
+            // sort the data <cluster_number, cluster_index>
+            std::multimap<int,int> label_map;
+            for(int j = 0; j < labels.rows; j++){
+                int cluster_number = labels.at<int>(j);
+                label_map.insert(std::pair<int,int>(cluster_number, j));
+            }
+
+            // Increase the connectivity of two clusters if they are labeled the same by kmeans
+            updateConnectivityMatrix(connectivity, &label_map);
+            cout << connectivity << endl;
+        }
+
+        // Now check the scores for the adjacent ones (if they are separated at least once by Kmeans, add it to cut hypotheses)
+        updateCutHypotheses(connectivity, adjacency, &hypotheses);
+        cout << "Hypotheses : " << endl;
+        for(std::multimap<int,int>::iterator it = hypotheses.begin(); it != hypotheses.end(); ++it){
+            cout << "(" << it->first << " " << it->second << ")" << endl;
+        }
+
+    }
+
+    return hypotheses;
+}
 
 Eigen::VectorXd cutGraph(Eigen::MatrixXd normalizedLaplacianMatrix, std::map<int, pcl::Supervoxel<pcl::PointXYZRGBA>::Ptr> *voxels, std::multimap<int, int> *adjacency){
 
@@ -1572,9 +1691,14 @@ Eigen::VectorXd cutGraph(Eigen::MatrixXd normalizedLaplacianMatrix, std::map<int
     printMap(&connected_components, "Connected Components");
 
 
-    // Loop over the eigenvectors to discover cut hypotheses and test NCut on hypotheses
-    // test only with first eigenvector to start
+    // Loop over the eigenvectors to discover cut hypotheses
     MatrixXd sorted_vectors = sortEigenvectors(eigenvectors_matrix, eigenvalues_matrix);
+    std::multimap<int,int> cut_hypotheses = getGraphCutHypotheses(sorted_vectors, adjacency);
+
+
+    // Evaluate Hypotheses to select the best cut candidates
+
+
 
     // Return labels of each vertex
 
@@ -1907,7 +2031,7 @@ int main (int argc, char** argv){
     pcl::PointCloud<PointT>::Ptr model_cloud(new pcl::PointCloud<PointT>);
 
     pcl::io::loadPCDFile("../bmw_clutter_remaining.pcd", *scene_cloud);
-    //pcl::io::loadPCDFile("/home/jp/Downloads/OSD-0.2/pcd/test31.pcd", *scene_cloud);
+   // pcl::io::loadPCDFile("/home/jp/Downloads/OSD-0.2/pcd/test58.pcd", *scene_cloud);
 
     //    pcl::io::loadPCDFile("../customAlignment_fine.pcd", *model_cloud);
 
