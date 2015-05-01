@@ -1391,7 +1391,7 @@ Eigen::MatrixXd sortEigenvectors(Eigen::MatrixXd eigenvectors, Eigen::MatrixXd e
         eigenvalues_map.insert(std::pair<double,int>(number, i));
     }
 
-    cout << "Test sorting :" << endl;
+    //cout << "Test sorting :" << endl;
     int numberOfCols = eigenvectors.cols();
     int sorted_index = 0;
     for(std::multimap<double,int>::iterator it = eigenvalues_map.begin(); it != eigenvalues_map.end(); ++it){
@@ -1586,7 +1586,7 @@ void updateConnectivityMatrix(Eigen::MatrixXd &connectivity, std::multimap<int,i
     for(std::multimap<int,int>::iterator it = label_map->begin(); it != label_map->end(); ++it){
         int first = it->first;
         int second = it->second;
-        cout <<  first << " .. " << second << endl;
+        //cout <<  first << " .. " << second << endl;
 
         if(first == index){
             if(!indices.empty()){
@@ -1647,7 +1647,7 @@ std::multimap<int,int> getGraphCutHypotheses(Eigen::MatrixXd eigenVectors, std::
         int attempts = 5;
         cv::Mat centers;
 
-        cout << "kmeans_linear" << endl;
+        //cout << "kmeans_linear" << endl;
         for(int k = 2; k < 5; k++){
             double distance = cv::kmeans(cv_eigen_col, k, labels, cv::TermCriteria(CV_TERMCRIT_ITER|CV_TERMCRIT_EPS, 10000, 0.00001), attempts, cv::KMEANS_PP_CENTERS, centers );
            // cout << k << " " << distance << ";" << endl;
@@ -1661,26 +1661,232 @@ std::multimap<int,int> getGraphCutHypotheses(Eigen::MatrixXd eigenVectors, std::
 
             // Increase the connectivity of two clusters if they are labeled the same by kmeans
             updateConnectivityMatrix(connectivity, &label_map);
-            cout << connectivity << endl;
+            //cout << connectivity << endl;
         }
 
         // Now check the scores for the adjacent ones (if they are separated at least once by Kmeans, add it to cut hypotheses)
         updateCutHypotheses(connectivity, adjacency, &hypotheses);
-        cout << "Hypotheses : " << endl;
-        for(std::multimap<int,int>::iterator it = hypotheses.begin(); it != hypotheses.end(); ++it){
-            cout << "(" << it->first << " " << it->second << ")" << endl;
-        }
 
+
+
+    }
+
+    cout << "Hypotheses : " << endl;
+    for(std::multimap<int,int>::iterator it = hypotheses.begin(); it != hypotheses.end(); ++it){
+        cout << "(" << it->first << " " << it->second << ")" << endl;
     }
 
     return hypotheses;
 }
 
 
-void normalizedCut(std::map<int, std::vector<int> > *initial_graph, std::multimap<int,int> *cut_hypotheses){
+void addConnectedNeighbors(std::map<int, std::vector<int> > *adjacency,
+                           std::map<int, std::vector<int> > *new_clusters,
+                           std::vector<int> *processed_indices,
+                           int index,
+                           int cluster_index,
+                           int cut_index){
+
+    if(adjacency->count(index) > 0){
+        std::vector<int> neighbors_indices = adjacency->at(index);
+
+        for(int i = 0; i < neighbors_indices.size(); i++){
+
+            int neighbor_index = neighbors_indices.at(i);
+
+            // Check if the point has already been processed to avoid being stuck in infinite loop
+            if (std::find(processed_indices->begin(), processed_indices->end(), neighbor_index) == processed_indices->end()){
+
+                if(neighbor_index != cut_index){
+                    processed_indices->push_back(neighbor_index);
+
+                    // Check if the index is already present in the vector
+                    std::vector<int> indices = new_clusters->at(cluster_index);
+                    if(std::find(indices.begin(), indices.end(), neighbor_index) == indices.end()) {
+                        //not present
+                        indices.push_back(neighbor_index);
+                        new_clusters->at(cluster_index) = indices;
+
+                        addConnectedComponents(adjacency, new_clusters, processed_indices, neighbor_index, cluster_index);
+                    }
+                }
+            }
+        }
+    }
+}
 
 
-    /// Code normalized cut!!
+std::map<int, std::vector<int> > splitCluster(std::map<int, std::vector<int> > *initial_graph, std::map<int, std::vector<int> > *adjacency, int id1, int id2){
+
+    std::map<int, std::vector<int> > splitted_graph ; //= new std::map<int, std::vector<int> >();
+    int graph_index = 0;
+
+    for(std::map<int, std::vector<int> >::iterator it = initial_graph->begin(); it != initial_graph->end(); ++it){
+
+        std::vector<int> indices = it->second;
+        if (std::find(indices.begin(), indices.end(), id1) != indices.end()){
+            // Split this cluster in 2
+            std::vector<int> processed_indices;
+            std::vector<int> v1;
+            std::vector<int> v2;
+            v1.push_back(id1);
+            v2.push_back(id2);
+
+            splitted_graph.insert(std::pair<int,std::vector<int> >(graph_index, v1));
+            addConnectedNeighbors(adjacency, &splitted_graph, &processed_indices, id1, graph_index, id2);
+            graph_index++;
+            splitted_graph.insert(std::pair<int,std::vector<int> >(graph_index, v2));
+            addConnectedNeighbors(adjacency, &splitted_graph, &processed_indices, id2, graph_index, id1);
+            graph_index++;
+        }
+        else{
+            //Keep the same cluster
+            splitted_graph.insert(std::pair<int,std::vector<int> >(graph_index, indices));
+            graph_index++;
+
+        }
+    }
+
+   // std::map<int, std::vector<int> > *graph = &splitted_graph;
+    return splitted_graph;
+
+}
+
+
+double minCutScore(std::vector<int> *v1, std::vector<int> *v2){
+
+    double score = 0;
+
+     for(int i = 0; i < v1->size(); i++){
+         for(int j = 0; j < v2->size(); j++){
+             int id1 = v1->at(i);
+             int id2 = v2->at(j);
+             double temp_score = AdjacencyMatrix(id1, id2);
+             score += temp_score;
+         }
+     }
+
+     return score;
+}
+
+double getClusterVolume(std::vector<int> *v1){
+
+    double volume = 0;
+    for(int i = 0; i < v1->size(); i++){
+        int id1 = v1->at(i);
+        double temp = DegreesMatrix(id1, id1);
+        volume += temp;
+    }
+
+    return volume;
+}
+
+double evaluateCutScore(std::map<int, std::vector<int> > *clusters){
+    double ncut_score = 0 ;
+
+    //for each cluster
+    for(std::map<int, std::vector<int> >::iterator it = clusters->begin(); it != clusters->end(); ++it){
+
+        int id1 = it->first;
+        std::vector<int> v1 = it->second;
+
+        // Calculate Min Cut Score
+        double min_cut_score = 0;
+        for(std::map<int, std::vector<int> >::iterator it2 = clusters->begin(); it2 != clusters->end(); ++it2){
+
+            int id2 = it2->first;
+            if(id1 != id2){
+                std::vector<int> v2 = it2->second;
+                double temp_score = minCutScore(&v1, &v2);
+                min_cut_score += temp_score;
+            }
+        }
+
+        double volume_score = getClusterVolume(&v1);
+        if(volume_score > 0){
+            ncut_score += (min_cut_score / volume_score);
+        }
+    }
+
+    return ncut_score;
+}
+
+
+void removeAdjacentClustersFromMap(std::map<int, std::vector<int> > *adjacency, int id1, int id2){
+
+    std::vector<int> v1 = adjacency->at(id1);
+    std::vector<int> v2 = adjacency->at(id2);
+
+    std::vector<int>::iterator position1 = std::find(v1.begin(), v1.end(), id2);
+    if (position1 != v1.end()) v1.erase(position1);
+
+    std::vector<int>::iterator position2 = std::find(v2.begin(), v2.end(), id1);
+    if (position2 != v2.end()) v2.erase(position2);
+
+    adjacency->at(id1) = v1;
+    adjacency->at(id2) = v2;
+
+}
+
+
+void normalizedCut(std::map<int, std::vector<int> > *initial_graph, std::map<int, std::vector<int> > *adjacency, std::multimap<int,int> *cut_hypotheses){
+
+
+    double last_score = 99999;
+
+    std::map<int, std::vector<int> > graph = *initial_graph;
+    std::map<int, std::vector<int> > adj = *adjacency;
+    std::multimap<int,int> cut_hypo = *cut_hypotheses;
+
+
+    // Find the best cut.
+    //for(int i = 0; i < cut_hypotheses->size(); i++){
+    for(int i = 0; i < 5; i++){
+
+        //score without cut
+        double score_before_cut = evaluateCutScore(&graph);
+        cout << "The initial score before cutting is : " << score_before_cut << endl;
+
+        // loop over cut hypotheses
+        double smallest_score = 9999;
+        std::multimap<int,int>::iterator best_hypothesis_it;
+        int smallest_id1 = -1;
+        int smallest_id2 = -1;
+
+
+        for(std::multimap<int,int>::iterator it = cut_hypo.begin(); it != cut_hypo.end(); ++it){
+
+            int first = it->first;
+            int second = it->second;
+
+            std::map<int, std::vector<int> > cut_graph = splitCluster(&graph, &adj, first, second);
+
+            // printMap(&cut_graph, "Graph Splitted");
+
+            double score = evaluateCutScore(&cut_graph);
+
+            if(score <= smallest_score){
+                smallest_score = score;
+                best_hypothesis_it = it;
+                smallest_id1 = first;
+                smallest_id2 = second;
+            }
+
+            cout << "Ncut Score (" << first << ", " << second << ") : " << score << endl;
+        }
+
+        cout << "I have CUT : (" << smallest_id1 << ", " << smallest_id2 << ")" << endl;
+        graph = splitCluster(&graph, &adj, smallest_id1, smallest_id2);
+        removeAdjacentClustersFromMap(&adj, smallest_id1, smallest_id2);
+        cut_hypo.erase(best_hypothesis_it);
+
+        printMap(&graph, "New Graph");
+        printMap(&adj, "New Adjacency");
+    }
+
+
+
+
 
 }
 
@@ -1696,6 +1902,8 @@ Eigen::VectorXd cutGraph(Eigen::MatrixXd normalizedLaplacianMatrix, std::map<int
     // Initialize labels with connected components
     std::map<int, std::vector<int> > adjacency_map = convertMultimapToMap<int,int>(adjacency);
     std::map<int, std::vector<int> > connected_components = findConnectedComponents(&adjacency_map, voxels);
+
+    printMap(&adjacency_map, "adjacency map");
     printMap(&connected_components, "Connected Components");
 
 
@@ -1705,7 +1913,7 @@ Eigen::VectorXd cutGraph(Eigen::MatrixXd normalizedLaplacianMatrix, std::map<int
 
 
     // Evaluate Hypotheses to select the best cut candidates
-    normalizedCut(&connected_components, &cut_hypotheses);
+    normalizedCut(&connected_components, &adjacency_map,  &cut_hypotheses);
 
 
     // Return labels of each vertex
