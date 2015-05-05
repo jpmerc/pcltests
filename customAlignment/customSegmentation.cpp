@@ -66,7 +66,7 @@ boost::shared_ptr<pcl::visualization::PCLVisualizer> pclViewer5 (new pcl::visual
 using namespace Eigen;
 MatrixXd DegreesMatrix;
 MatrixXd AdjacencyMatrix;
-
+int recursiveCutIndex = 0;
 
 
 /// LIST OF PARAMETERS
@@ -1929,6 +1929,24 @@ void normalizedCut(std::map<int, std::vector<int> > *initial_graph, std::map<int
 }
 
 
+VectorXd getLabelsMap(std::map<int, std::vector<int> > graph, int numberOfElements){
+
+    VectorXd labels;
+    labels.resize(numberOfElements);
+
+    for(std::map<int, std::vector<int> >::iterator it = graph.begin(); it != graph.end(); ++it){
+
+        int clusterId = it->first;
+        std::vector<int> v = it->second;
+        for(int i = 0; i < v.size(); i++){
+            int clusterNumber = v.at(i);
+            labels(clusterNumber) = clusterId;
+        }
+    }
+
+    return labels;
+}
+
 VectorXd labelGraph(std::map<int, std::vector<int> > *initial_graph, std::map<int, std::vector<int> > *adjacency, std::multimap<int,int> *cut_hypotheses, int numberOfElements){
 
     std::map<int, std::vector<int> > graph = *initial_graph;
@@ -1965,23 +1983,105 @@ VectorXd labelGraph(std::map<int, std::vector<int> > *initial_graph, std::map<in
 }
 
 
-std::map<int, std::vector<int> > recursiveCut(std::vector<int> *indices,  MatrixXd eigenvectors){
+std::map<int, std::vector<int> > mergeMaps(std::vector<std::map<int, std::vector<int> > > map_vector){
 
+    int index = 0;
+    std::map<int, std::vector<int> > map_return;
+
+    for(int i = 0; i < map_vector.size(); i++){
+        std::map<int, std::vector<int> > temp_map = map_vector.at(i);
+        for(std::map<int, std::vector<int> >::iterator it = temp_map.begin(); it != temp_map.end(); ++it){
+            map_return.insert(std::pair<int, std::vector<int> >(index, it->second));
+            index++;
+        }
+    }
+
+    return map_return;
+}
+
+std::map<int, std::vector<int> > mergeMaps(std::map<int, std::vector<int> > first, std::map<int, std::vector<int> > second){
+
+
+    int index = 0;
+    std::map<int, std::vector<int> > map_return;
+
+    for(std::map<int, std::vector<int> >::iterator it = first.begin(); it != first.end(); ++it){
+        map_return.insert(std::pair<int, std::vector<int> >(index, it->second));
+        index++;
+
+    }
+
+    for(std::map<int, std::vector<int> >::iterator it = second.begin(); it != second.end(); ++it){
+        map_return.insert(std::pair<int, std::vector<int> >(index, it->second));
+        index++;
+    }
+
+    return map_return;
+}
+
+std::map<int, std::vector<int> > recursiveCut(std::vector<int> indices,  MatrixXd eigenvectors){
+
+    cout << "Indices : ";
+    for(int i = 0; i < indices.size(); i++){
+        cout << indices.at(i) << ", ";
+    }
+    cout << endl;
+
+    if(indices.size() < 2){
+        std::map<int, std::vector<int> > map_indices;
+        map_indices.insert(std::pair<int, std::vector<int> >(0, indices));
+        return map_indices;
+    }
 
     // Reduce the size of the matrix with only the indices present in the cluster
-
+    MatrixXd eigen_resized;
+    int size = indices.size();
+    eigen_resized.resize(size,size);
+    for(int i = 0; i < size; i++){
+        int id_i = indices.at(i);
+        for(int j = 0; j < size; j++){
+            int id_j = indices.at(j);
+            eigen_resized(j, i) = eigenvectors(id_j, id_i);
+        }
+    }
+    cv::Mat samples = eigenToCVMat(eigen_resized);
 
     // Split in 2 with kmeans
-
+    cv::Mat labels;
+    int attempts = 5;
+    cv::Mat centers;
+    int k = 2;
+    double compactness = cv::kmeans(samples, k, labels, cv::TermCriteria(CV_TERMCRIT_ITER|CV_TERMCRIT_EPS, 10000, 0.00001), attempts, cv::KMEANS_PP_CENTERS, centers);
 
     // If the compactness is lower than a threshold, split in 2. Otherwise, keep it as a cluster.
-
+    cout << "Compactness ( " << size << ") = " << compactness << endl;
+    if(compactness < 0.01){
+        std::map<int, std::vector<int> > map_indices;
+        map_indices.insert(std::pair<int, std::vector<int> >(0, indices));
+        return map_indices;
+    }
 
     // Recursion on the 2 newly created clusters
+    cout << "labels : " << endl << labels << endl;
+    std::vector<int> first_cluster_indices;
+    std::vector<int> second_cluster_indices;
+    for(int i = 0; i < labels.rows; i++){
+        int original_id = indices.at(i);
+        int cluster_id = labels.at<int>(i,0);
+        if(cluster_id == 0){
+            first_cluster_indices.push_back(original_id);
+        }
+        else{
+            second_cluster_indices.push_back(original_id);
+        }
+    }
 
+    // recursion
+    std::map<int, std::vector<int> > first_map =  recursiveCut(first_cluster_indices, eigenvectors);
+    std::map<int, std::vector<int> > second_map = recursiveCut(second_cluster_indices, eigenvectors);
 
     // Merge the clusters together (keep an index somewhere for the new clusters)
-
+    return mergeMaps(first_map, second_map);
 
 }
 
@@ -2003,7 +2103,7 @@ Eigen::VectorXd cutGraph(Eigen::MatrixXd normalizedLaplacianMatrix, std::map<int
 
 
     /// Eigengap method (select number of vectors = eigengap and cut directly hypotheses based on eigenvectors)
-    int numberOfEigenToKeep = eigenGap(eigenvalues_matrix);
+//    int numberOfEigenToKeep = eigenGap(eigenvalues_matrix);
 //    MatrixXd sorted_vectors = sortEigenvectors(eigenvectors_matrix, eigenvalues_matrix);
 //    std::multimap<int,int> cut_hypotheses = getGraphCutHypotheses(sorted_vectors, adjacency, numberOfEigenToKeep);
 //    VectorXd labels = labelGraph(&connected_components, &adjacency_map,  &cut_hypotheses, sorted_vectors.rows());
@@ -2011,18 +2111,19 @@ Eigen::VectorXd cutGraph(Eigen::MatrixXd normalizedLaplacianMatrix, std::map<int
 
 
 
-    // Loop over the eigenvectors to discover cut hypotheses
+    /// Graph cut recursion with kmeans (k=2) (Problem when 2 clusters and do not take into account adjacency info)
     MatrixXd sorted_vectors = sortEigenvectors(eigenvectors_matrix, eigenvalues_matrix);
 
-
-    //sorted_vectors = sorted_vectors.resize(sorted_vectors.rows(), numberOfEigenToKeep);
-    //std::multimap<int,int> cut_hypotheses = getGraphCutHypotheses(sorted_vectors, adjacency, numberOfEigenToKeep);
+    std::vector<std::map<int, std::vector<int> > >  maps_vector;
     for(std::map<int, std::vector<int> >::iterator it = connected_components.begin(); it != connected_components.end(); ++it){
-
         std::vector<int> vec = it->second;
-        recursiveCut(&vec, sorted_vectors);
-
+        std::map<int, std::vector<int> > temp_map = recursiveCut(vec, sorted_vectors);
+        maps_vector.push_back(temp_map);
     }
+
+    std::map<int, std::vector<int> > clusters = mergeMaps(maps_vector);
+    VectorXd labels = getLabelsMap(clusters, sorted_vectors.rows());
+
 
     // Evaluate Hypotheses to select the best cut candidates
     //normalizedCut(&connected_components, &adjacency_map,  &cut_hypotheses);
@@ -2031,8 +2132,9 @@ Eigen::VectorXd cutGraph(Eigen::MatrixXd normalizedLaplacianMatrix, std::map<int
     // Return labels of each vertex
     //VectorXd labels = labelGraph(&connected_components, &adjacency_map,  &cut_hypotheses, sorted_vectors.rows());
 
-    return labels;
 
+
+    return labels;
 }
 
 
