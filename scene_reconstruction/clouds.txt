@@ -1,0 +1,4 @@
+scans/bin1.pcd
+scans/bin2.pcd
+scans/bin3.pcd
+scans/bin4.pcd

@@ -8,6 +8,9 @@
 
 #include <pcl/visualization/pcl_visualizer.h>
 #include <pcl/io/pcd_io.h>
+#include <pcl/io/obj_io.h>
+#include <pcl/io/ply_io.h>
+#include <pcl/io/vtk_io.h>
 #include <vtkRenderWindow.h>
 
 #include <Eigen/Eigen>
@@ -34,8 +37,14 @@
 #include <pcl/filters/sampling_surface_normal.h>
 #include <pcl/filters/voxel_grid.h>
 #include <pcl/filters/extract_indices.h>
+#include <pcl/filters/passthrough.h>
+
+#include <pcl/kdtree/kdtree_flann.h>
+#include <pcl/surface/gp3.h>
+#include <pcl/surface/convex_hull.h>
 
 #include <boost/thread.hpp>
+#include <pcl/PCLPointCloud2.h>
 
 typedef pcl::PointXYZRGBNormal PointT;
 typedef pcl::PointXYZRGB PointC;
@@ -47,7 +56,7 @@ using namespace Eigen;
 
 boost::shared_ptr<pcl::visualization::PCLVisualizer> pclViewer (new pcl::visualization::PCLVisualizer ("3D Viewer"));
 //boost::shared_ptr<pcl::visualization::PCLVisualizer> pclViewer2 (new pcl::visualization::PCLVisualizer ("3D Viewer"));
-
+PointCloud<PointT>::Ptr merged_pointcloud(new PointCloud<PointT>);
 
 struct CorrespondenceResults {
     EIGEN_MAKE_ALIGNED_OPERATOR_NEW
@@ -91,14 +100,16 @@ void showTransform(std::vector<CorrespondenceResults*> *results, int index){
 
     CorrespondenceResults *corr = results->at(index);
 
+    pclViewer->removeAllPointClouds();
+
     pclViewer->addPointCloud (corr->scene_cloud, ColorHandlerT(corr->scene_cloud, 255.0, 0.0, 0.0), "scene");
     pclViewer->setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 1, "scene");
 
-   // pclViewer->addPointCloud (corr->model_cloud, ColorHandlerT(corr->model_cloud, 0.0, 255.0, 0.0), "model");
-   // pclViewer->setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 1, "model");
+    // pclViewer->addPointCloud (corr->model_cloud, ColorHandlerT(corr->model_cloud, 0.0, 255.0, 0.0), "model");
+    // pclViewer->setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 1, "model");
 
-   // pclViewer->addPointCloud (corr->model_coarse_aligned, ColorHandlerT(corr->model_coarse_aligned, 0.0, 255.0, 0.0), "ransac");
-   // pclViewer->setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 1, "ransac");
+    // pclViewer->addPointCloud (corr->model_coarse_aligned, ColorHandlerT(corr->model_coarse_aligned, 0.0, 255.0, 0.0), "ransac");
+    // pclViewer->setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 1, "ransac");
 
     pclViewer->addPointCloud (corr->model_fine_aligned, ColorHandlerT(corr->model_fine_aligned, 0.0, 0.0, 255.0), "icp");
     pclViewer->setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 1, "icp");
@@ -106,10 +117,10 @@ void showTransform(std::vector<CorrespondenceResults*> *results, int index){
     //    pclViewer->addPointCloud (corr->scene_keypoints, ColorHandlerT(corr->scene_keypoints, 255.0, 255.0, 0.0), "scene_key");
     //    pclViewer->setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 5, "scene_key");
 
-   // pclViewer->addPointCloud (corr->model_keypoints, ColorHandlerT(corr->model_keypoints, 0.0, 0.0, 255.0), "model_key");
-   // pclViewer->setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 1, "model_key");
+    // pclViewer->addPointCloud (corr->model_keypoints, ColorHandlerT(corr->model_keypoints, 0.0, 0.0, 255.0), "model_key");
+    // pclViewer->setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 1, "model_key");
 
-  //  pclViewer->addCorrespondences<PointT>(corr->model_keypoints, corr->scene_keypoints, corr->correspondences, "corr1");
+    //  pclViewer->addCorrespondences<PointT>(corr->model_keypoints, corr->scene_keypoints, corr->correspondences, "corr1");
 
 }
 
@@ -469,41 +480,115 @@ int getBestTransformIndex(std::vector<CorrespondenceResults*> *transforms){
     return smallestScore_index;
 }
 
+
+std::vector<PointCloud<PointT>::Ptr> parseFile(string filePath){
+
+    std::vector<PointCloud<PointT>::Ptr> pc_vec;
+
+    string line;
+    ifstream myfile(filePath.c_str());
+    if(myfile.is_open()){
+        while ( getline (myfile,line) )
+        {
+            if(line.length() > 0){
+                cout << line << '\n';
+                PointCloud<PointT>::Ptr temp(new PointCloud<PointT>);
+                string path = "../" + line;
+                pcl::io::loadPCDFile(path, *temp);
+                cout << "size : " << temp->size() << endl;
+                pc_vec.push_back(temp);
+            }
+        }
+        myfile.close();
+    }
+    return pc_vec;
+}
+
+
+pcl::PointCloud<PointT>::Ptr symmetry(pcl::PointCloud<PointT>::Ptr cloud){
+
+
+}
+
+
+
 int main (int argc, char** argv){
 
 
     PointCloud<PointT>::Ptr first(new PointCloud<PointT>);
     PointCloud<PointT>::Ptr second(new PointCloud<PointT>);
 
-    pcl::io::loadPCDFile("../scans/bin1.pcd", *first);
-    pcl::io::loadPCDFile("../scans/bin2.pcd", *second);
+    std::vector<PointCloud<PointT>::Ptr> clouds = parseFile("../clouds.txt");
 
-    // Downsample
-    PointCloud<PointT>::Ptr downsampled_first(new PointCloud<PointT>);
-    PointCloud<PointT>::Ptr downsampled_second(new PointCloud<PointT>);
-    downsampled_first  = downsample(first , 0.005);
-    downsampled_second = downsample(second, 0.005);
+    if(clouds.size() > 1){
 
-    // Normals
-    downsampled_first  = computeSurfaceNormals(downsampled_first);
-    downsampled_second = computeSurfaceNormals(downsampled_second);
+        // Iterate over all the clouds to merge
+        for(int i = 1; i < clouds.size(); i++){
 
-    initPCLViewer();
+            // pcl::io::loadPCDFile("../scans/bin1.pcd", *first);
+            // pcl::io::loadPCDFile("../scans/bin2.pcd", *second);
 
-    // Threads for computing the alignment with different techniques
-    boost::thread thread_ISS(ISS_thread, downsampled_first, downsampled_second);
-    boost::thread thread_Sampling(Sampling_thread, downsampled_first, downsampled_second);
+            if(merged_pointcloud->size() <= 0){
+                merged_pointcloud = clouds.at(0);
+            }
 
-    // Wait for threads to finish
-    thread_ISS.join();
-    thread_Sampling.join();
+            second = clouds.at(i);
 
-    // Check the best alignment and show it in PCL Viewer
-    int bestTFIndex = getBestTransformIndex(&_AlignmentResults);
-    //std::cout << "alignment score = " << _AlignmentResults.at(0)->fine_transformation_score << std::endl;
-    showTransform(&_AlignmentResults, bestTFIndex);
+            // Downsample
+            PointCloud<PointT>::Ptr downsampled_merged(new PointCloud<PointT>);
+            PointCloud<PointT>::Ptr downsampled_second(new PointCloud<PointT>);
+            downsampled_merged  = downsample(merged_pointcloud , 0.005);
+            downsampled_second = downsample(second, 0.005);
 
-    saveClouds(&_AlignmentResults, bestTFIndex);
+            /// COMMENT IF USING BINS ONLY
+            //            pcl::PointCloud<PointT>::Ptr temp_cloud(new pcl::PointCloud<PointT>);
+            //            pcl::PassThrough<PointT> pass_filter;
+            //            pass_filter.setFilterFieldName("z");
+            //            pass_filter.setFilterLimits(0, 1.3);
+            //            pass_filter.setInputCloud(downsampled_merged);
+            //            pass_filter.filter(*temp_cloud);
+            //            *downsampled_merged = *temp_cloud;
+            //            pass_filter.setInputCloud(downsampled_second);
+            //            pass_filter.filter(*temp_cloud);
+            //            *downsampled_second = *temp_cloud;
+            /// END COMMENT
+
+            // Normals
+            downsampled_merged  = computeSurfaceNormals(downsampled_merged);
+            downsampled_second = computeSurfaceNormals(downsampled_second);
+
+            initPCLViewer();
+
+            // Threads for computing the alignment with different techniques
+            boost::thread thread_ISS(ISS_thread, downsampled_merged, downsampled_second);
+            boost::thread thread_Sampling(Sampling_thread, downsampled_merged, downsampled_second);
+
+            // Wait for threads to finish
+            thread_ISS.join();
+            thread_Sampling.join();
+
+            // Check the best alignment and show it in PCL Viewer
+            int bestTFIndex = getBestTransformIndex(&_AlignmentResults);
+            //std::cout << "alignment score = " << _AlignmentResults.at(0)->fine_transformation_score << std::endl;
+            showTransform(&_AlignmentResults, bestTFIndex);
+
+            //saveClouds(&_AlignmentResults, bestTFIndex);
+
+            CorrespondenceResults *corr = _AlignmentResults.at(bestTFIndex);
+            *merged_pointcloud += *(corr->model_fine_aligned);
+            _AlignmentResults.clear();
+
+            pclViewer->spinOnce (100);
+        }
+    }
+
+    merged_pointcloud = downsample(merged_pointcloud , 0.005);
+    merged_pointcloud = computeSurfaceNormals(merged_pointcloud);
+    pcl::io::savePCDFile("../merged.pcd", *merged_pointcloud);
+
+
+
+
 
     while (!pclViewer->wasStopped()) {
         pclViewer->spinOnce (100);
