@@ -10,3 +10,6 @@ add_definitions(${PCL_DEFINITIONS})
 
 add_executable (cluster_extraction cluster_extraction.cpp)
 target_link_libraries (cluster_extraction ${PCL_LIBRARIES})
+
+add_executable (conditional_euclidean conditional_euclidean.cpp)
+target_link_libraries (conditional_euclidean ${PCL_LIBRARIES})
