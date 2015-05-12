@@ -66,6 +66,9 @@ boost::shared_ptr<pcl::visualization::PCLVisualizer> pclViewer5 (new pcl::visual
 using namespace Eigen;
 MatrixXd DegreesMatrix;
 MatrixXd AdjacencyMatrix;
+MatrixXd ConnectedMatrix;
+MatrixXd CannotLinkMatrix;
+
 int recursiveCutIndex = 0;
 
 
@@ -100,7 +103,7 @@ void printSuperVoxels(std::map<int, pcl::Supervoxel<pcl::PointXYZRGBA>::Ptr> *vo
 void printMap(std::map<int, std::vector<int> > *myMap, std::string mapName);
 void spectralClustering(std::map<int, pcl::Supervoxel<pcl::PointXYZRGBA>::Ptr> *voxels, std::multimap<int, int> *adjacency);
 Eigen::VectorXd kmeans_clustering(Eigen::MatrixXd normalizedLaplacianMatrix);
-void printEigenMatrix(Eigen::MatrixXd matrix, std::string name);
+void printEigenMatrix(Eigen::MatrixXd &matrix, std::string name);
 double numberOfSameNeighbors(std::multimap<int, int> *adjacency, int id1, int id2);
 void mergeSimilarSupervoxelNeighbors(std::map<int, pcl::Supervoxel<pcl::PointXYZRGBA>::Ptr> *supervoxels, std::multimap<int, int> *adjacency);
 
@@ -110,6 +113,8 @@ std::map<int, std::vector<int> > findNeighbors(std::map<int, std::vector<int> > 
                                                std::multimap<int, int> *previousAdjacency);
 
 Eigen::VectorXd cutGraph(Eigen::MatrixXd normalizedLaplacianMatrix, std::map<int, pcl::Supervoxel<pcl::PointXYZRGBA>::Ptr> *voxels, std::multimap<int, int> *adjacency);
+VectorXd alexandrov_clustering(Eigen::MatrixXd &LaplacianMatrix, std::map<int, pcl::Supervoxel<pcl::PointXYZRGBA>::Ptr> *voxels, std::multimap<int, int> *adjacency);
+
 
 void initPCLViewer(){
     //PCL Viewer
@@ -1157,6 +1162,11 @@ void spectralClustering(std::map<int, pcl::Supervoxel<pcl::PointXYZRGBA>::Ptr> *
     Connections.resize(size, size);
     Connections.setZero();
 
+    // Cannot Link Matrix (Alexandrov)
+    MatrixXd CL;
+    CL.resize(size, size);
+    CL.setZero();
+
     int i = 0;
     int j = 0;
 
@@ -1210,20 +1220,50 @@ void spectralClustering(std::map<int, pcl::Supervoxel<pcl::PointXYZRGBA>::Ptr> *
             //            }
 
             if(isAdjacent(adjacency, id1, id2)){
-                const Vector3f& c1 = supervoxel1->centroid_.getVector3fMap();
-                const Vector3f& c2 = supervoxel2->centroid_.getVector3fMap();
-                double sigma = 0.05;
-                double squared_norm = (c1 - c2).squaredNorm();
-                double val = exp(-squared_norm / (2*sigma*sigma));
-                double inverse_quadratic = 1 / (1 + 500 * squared_norm);
+                const Vector3f c1 = supervoxel1->centroid_.getVector3fMap();
+                const Vector3f c2 = supervoxel2->centroid_.getVector3fMap();
+                const Vector3f n1 = supervoxel1->normal_.getNormalVector3fMap().normalized();
+                const Vector3f n2 = supervoxel2->normal_.getNormalVector3fMap().normalized();
 
-//                double sameNeighbors = numberOfSameNeighbors(adjacency, id1, id2);
-//                double neighborhood_score = 1.5 * log(sameNeighbors + 1);
-//                if(neighborhood_score > 1.0) neighborhood_score = 1.0;
+                /// Reviewed Alexandrov Weights
+                double convexity_calculation = (n2-n1).dot(c2-c1);
+                double weight = 0;
 
-//                double score = ( inverse_quadratic + neighborhood_score ) / 2 ;
 
-                W(i, j) = val;
+                if(convexity_calculation > 0){
+                    weight = 1;
+                }
+
+                else{
+                    double sigma = 0.1;
+                    double squared_norm = (n1 - n2).squaredNorm();
+                    weight = 1 / ( 1 + sigma * squared_norm);
+
+                    double angle = pcl::rad2deg( acos(n1.dot(n2)) );
+                    if(angle > 45){
+                        CL(i,j) = 1;
+                    }
+                }
+
+
+
+//                double sigma = 0.05;
+//                //double squared_norm = (c1 - c2).squaredNorm();
+//                //double val = exp(-squared_norm / (2*sigma*sigma));
+//                double d1 = (c1 - c2).norm();
+//                double d2 = 1 - std::abs(n1.dot(n2)) ;
+//                double val_dist = exp(-d1 / (0.1));
+//                //double val_angle = exp(-d2 / (0.2));
+//              //double val = val_dist * val_angle;
+//                double val = val_dist;
+//                //double inverse_quadratic = 1 / (1 + 500 * squared_norm);
+
+////                double sameNeighbors = numberOfSameNeighbors(adjacency, id1, id2);
+////                double neighborhood_score = 1.5 * log(sameNeighbors + 1);
+////                if(neighborhood_score > 1.0) neighborhood_score = 1.0;
+////                double score = ( inverse_quadratic + neighborhood_score ) / 2 ;
+
+                W(i, j) = weight;
             }
             else{
                  W(i, j) = 0;
@@ -1294,10 +1334,12 @@ void spectralClustering(std::map<int, pcl::Supervoxel<pcl::PointXYZRGBA>::Ptr> *
     printEigenMatrix(D_root_inv, "Root Degree inverse Matrix");
     printEigenMatrix(D_inverse, "Degree inverse Matrix");
     printEigenMatrix(Connections, "Connections Matrix (not used in code, only for information purposes)");
+    printEigenMatrix(CL, "Cannot-Link Constraints (Alexandrov)");
 
     DegreesMatrix = D;
     AdjacencyMatrix = W;
-
+    ConnectedMatrix = Connections;
+    CannotLinkMatrix = CL;
 
 
 //    cout << "Degree Matrix root" << endl;
@@ -1310,31 +1352,32 @@ void spectralClustering(std::map<int, pcl::Supervoxel<pcl::PointXYZRGBA>::Ptr> *
 //    cout << normalizedLaplacian << endl;
 
 
-   // VectorXd new_labels = kmeans_clustering(normalizedLaplacian);
+    VectorXd new_labels = alexandrov_clustering(Laplacian, voxels, adjacency);
+   //VectorXd new_labels = kmeans_clustering(normalizedLaplacian);
 
-    VectorXd new_labels = cutGraph(RandomWalkLaplacian, voxels, adjacency);
+    //VectorXd new_labels = cutGraph(RandomWalkLaplacian, voxels, adjacency);
 
 
-    std::map<int, pcl::Supervoxel<pcl::PointXYZRGBA>::Ptr> new_supervoxels;
+//    std::map<int, pcl::Supervoxel<pcl::PointXYZRGBA>::Ptr> new_supervoxels;
 
-    int ind = 0;
-    for(std::map<int, pcl::Supervoxel<pcl::PointXYZRGBA>::Ptr>::iterator it = voxels->begin(); it != voxels->end(); ++it){
-        pcl::Supervoxel<pcl::PointXYZRGBA>::Ptr supervox = it->second;
-        int new_id = new_labels(ind);
-         if(new_supervoxels.count(new_id) > 0){
-             pcl::Supervoxel<pcl::PointXYZRGBA>::Ptr new_supervox = new_supervoxels[new_id];
-             *(new_supervox->voxels_) += *(supervox->voxels_);
-             new_supervoxels[new_id] = new_supervox;
-         }
+//    int ind = 0;
+//    for(std::map<int, pcl::Supervoxel<pcl::PointXYZRGBA>::Ptr>::iterator it = voxels->begin(); it != voxels->end(); ++it){
+//        pcl::Supervoxel<pcl::PointXYZRGBA>::Ptr supervox = it->second;
+//        int new_id = new_labels(ind);
+//         if(new_supervoxels.count(new_id) > 0){
+//             pcl::Supervoxel<pcl::PointXYZRGBA>::Ptr new_supervox = new_supervoxels[new_id];
+//             *(new_supervox->voxels_) += *(supervox->voxels_);
+//             new_supervoxels[new_id] = new_supervox;
+//         }
 
-         else{
-             new_supervoxels[new_id] = supervox;
-         }
+//         else{
+//             new_supervoxels[new_id] = supervox;
+//         }
 
-         ind++;
-    }
+//         ind++;
+//    }
 
-    printSuperVoxels(&new_supervoxels, adjacency, pclViewer4, false);
+//    printSuperVoxels(&new_supervoxels, adjacency, pclViewer4, false);
 
 }
 
@@ -1375,7 +1418,7 @@ cv::Mat retrieveKsmallestEigenvectors(Eigen::MatrixXd eigenvectors, Eigen::Matri
     return samples;
 }
 
-Eigen::MatrixXd sortEigenvectors(Eigen::MatrixXd eigenvectors, Eigen::MatrixXd eigenvalues){
+Eigen::MatrixXd sortEigenvectors(Eigen::MatrixXd &eigenvectors, Eigen::MatrixXd &eigenvalues){
     using namespace Eigen;
 
     MatrixXd sorted_eigenvectors;
@@ -1501,7 +1544,7 @@ int findElbowIndex(std::vector<double> *distances){
     return largestDistanceIndex;
 }
 
-void eigenDecomposition(Eigen::MatrixXd MatrixToDecompose, Eigen::MatrixXd &eigenvectors, Eigen::MatrixXd &eigenvalues){
+void eigenDecomposition(Eigen::MatrixXd &MatrixToDecompose, Eigen::MatrixXd &eigenvectors, Eigen::MatrixXd &eigenvalues){
     using namespace Eigen;
 
     EigenSolver<MatrixXd> es(MatrixToDecompose);
@@ -2053,7 +2096,7 @@ std::map<int, std::vector<int> > recursiveCut(std::vector<int> indices,  MatrixX
     int k = 2;
     double compactness = cv::kmeans(samples, k, labels, cv::TermCriteria(CV_TERMCRIT_ITER|CV_TERMCRIT_EPS, 10000, 0.00001), attempts, cv::KMEANS_PP_CENTERS, centers);
 
-    // If the compactness is lower than a threshold, split in 2. Otherwise, keep it as a cluster.
+    // If the compactness is bigger than a threshold, split in 2. Otherwise, keep it as a cluster.
     cout << "Compactness ( " << size << ") = " << compactness << endl;
     if(compactness < 0.01){
         std::map<int, std::vector<int> > map_indices;
@@ -2137,6 +2180,145 @@ Eigen::VectorXd cutGraph(Eigen::MatrixXd normalizedLaplacianMatrix, std::map<int
     return labels;
 }
 
+
+MatrixXd BuildLaplacian(std::vector<int> *indices, MatrixXd &laplacian){
+
+
+    MatrixXd laplacian_resized;
+    int size = indices->size();
+    laplacian_resized.resize(size,size);
+    for(int i = 0; i < size; i++){
+        int id_i = indices->at(i);
+        for(int j = 0; j < size; j++){
+            int id_j = indices->at(j);
+            laplacian_resized(j, i) = laplacian(id_j, id_i);
+        }
+    }
+
+    MatrixXd eigenvectors_matrix;
+    MatrixXd eigenvalues_matrix;
+    eigenDecomposition(laplacian, eigenvectors_matrix, eigenvalues_matrix);
+    MatrixXd sorted_eigenvectors = sortEigenvectors(eigenvectors_matrix, eigenvalues_matrix);
+
+    return sorted_eigenvectors;
+}
+
+std::vector<int> getNeighbors(int index){
+
+    std::vector<int> neighbors;
+    VectorXd row = ConnectedMatrix.row(index);
+    for(int i = 0; i < row.size(); i++){
+        if(i!=0) neighbors.push_back(i);
+    }
+
+    return neighbors;
+}
+
+// returns the cut index (column of eigenvector) and cluster index (row of eigenvector)
+std::vector<int> findBestCut(std::vector<int> *indices, MatrixXd &eigen){
+
+    int cut_i = 0; //cut index (eigenvector)
+    int cut_v = 0; // cut vertex (cluster index)
+    double cut_score = 0.0; // cut score
+
+    // Iterate over all the sorted eigenvectors
+    for(int i = 0; i < eigen.cols(); i++){
+        double cut_weight = 0;
+        int cl_edges_cut = 0;
+
+        VectorXd vec = eigen.col(i);
+        std::map<double, int> sorted_values;
+
+        // Push values of selected eigenvector to a map to sort them and keep their index at the same time
+        for(int j = 0; j < vec.size(); j++){
+            sorted_values.insert(std::pair<double,int>( vec(j), indices->at(j)) );
+        }
+
+        // Iterate over the sorted values of a eigenvector column
+        for(std::map<double, int>::iterator it = sorted_values.begin(); it != sorted_values.end(); ++it){
+            double value = it->first;
+            int index = it->second;
+
+            // Get the neighbors of selected index and iterate over its neighbors
+            vector<int> neighbors = getNeighbors(index);
+            for(int j = 0; j < neighbors.size(); j++){
+                int neighbor_index = neighbors.at(j);
+                std::vector<int>::iterator vec_it = std::find(indices->begin(), indices->end(), neighbor_index);
+                bool found = (vec_it != indices->end());
+                if(!found){
+                    continue;
+                }
+                double neighbor_value = eigen(neighbor_index, i);
+
+                // If the value of the neighbor is bigger, add to the current cut weight
+                if(value < neighbor_value){
+                    cut_weight = cut_weight + AdjacencyMatrix(index, neighbor_index);
+                    if(CannotLinkMatrix(index, neighbor_index) != 0){
+                        cl_edges_cut += 1;
+                    }
+                }
+
+                //If the value of neighbor is smaller, remove from the current cut weight
+                else{
+                    cut_weight = cut_weight - AdjacencyMatrix(index, neighbor_index);
+                    if(CannotLinkMatrix(index, neighbor_index) != 0){
+                        cl_edges_cut -= 1;
+                    }
+                }
+            }
+
+            // For For each value, update the cut if the score is higher than previous ones
+            double local_score = cl_edges_cut / cut_weight;
+            if(local_score > cut_score){
+                cut_i = i;
+                cut_v = index;
+                cut_score = local_score;
+            }
+        }
+    }
+
+    std::vector<int> v;
+    v.push_back(cut_i);
+    v.push_back(cut_v);
+    return v;
+
+}
+
+
+VectorXd alexandrov_clustering(MatrixXd &LaplacianMatrix, std::map<int, pcl::Supervoxel<pcl::PointXYZRGBA>::Ptr> *voxels, std::multimap<int, int> *adjacency){
+
+ //   MatrixXd eigenvectors_matrix;
+ //   MatrixXd eigenvalues_matrix;
+ //   eigenDecomposition(LaplacianMatrix, eigenvectors_matrix, eigenvalues_matrix);
+
+    // Initialize labels with connected components
+    std::map<int, std::vector<int> > adjacency_map = convertMultimapToMap<int,int>(adjacency);
+    std::map<int, std::vector<int> > connected_components = findConnectedComponents(&adjacency_map, voxels);
+
+    // Initialize subgraphs
+    std::stack<std::vector<int> > Q;
+    for(std::map<int, std::vector<int> >::iterator it = connected_components.begin(); it != connected_components.end(); ++it){
+        Q.push(it->second);
+    }
+
+    while(!Q.empty()){
+        std::vector<int> S = Q.top();
+        Q.pop();
+
+        MatrixXd eigen_resized = BuildLaplacian(&S, LaplacianMatrix);
+
+        int cut_counter = 0;
+
+        findBestCut(&S, eigen_resized);
+
+
+    }
+
+
+
+
+
+}
 
 
 Eigen::VectorXd kmeans_clustering(Eigen::MatrixXd normalizedLaplacianMatrix){
@@ -2444,7 +2626,7 @@ void findCylinderPrimitive(pcl::PointCloud<PointT>::Ptr cloud){
 
 }
 
-void printEigenMatrix(Eigen::MatrixXd matrix, std::string name){
+void printEigenMatrix(Eigen::MatrixXd &matrix, std::string name){
     cout << name << endl;
     cout << "[ " << endl;
     for(int i=0; i < matrix.rows(); i++){
@@ -2462,8 +2644,8 @@ int main (int argc, char** argv){
     pcl::PointCloud<PointT>::Ptr scene_cloud(new pcl::PointCloud<PointT>);
     pcl::PointCloud<PointT>::Ptr model_cloud(new pcl::PointCloud<PointT>);
 
-    pcl::io::loadPCDFile("../bmw_clutter_remaining.pcd", *scene_cloud);
-   // pcl::io::loadPCDFile("/home/jp/Downloads/OSD-0.2/pcd/test58.pcd", *scene_cloud);
+   // pcl::io::loadPCDFile("../bmw_clutter_remaining.pcd", *scene_cloud);
+    pcl::io::loadPCDFile("/home/jp/Downloads/OSD-0.2/pcd/test58.pcd", *scene_cloud);
 
     //    pcl::io::loadPCDFile("../customAlignment_fine.pcd", *model_cloud);
 
@@ -2472,13 +2654,13 @@ int main (int argc, char** argv){
 
 
     /// COMMENT IF NOT USING OSD DATASET
-//    pcl::PointCloud<PointT>::Ptr temp_cloud(new pcl::PointCloud<PointT>);
-//    pcl::PassThrough<PointT> pass_filter;
-//    pass_filter.setFilterFieldName("z");
-//    pass_filter.setFilterLimits(0, 1.3);
-//    pass_filter.setInputCloud(scene_cloud);
-//    pass_filter.filter(*temp_cloud);
-//    scene_cloud = extractPlane(temp_cloud, true);
+    pcl::PointCloud<PointT>::Ptr temp_cloud(new pcl::PointCloud<PointT>);
+    pcl::PassThrough<PointT> pass_filter;
+    pass_filter.setFilterFieldName("z");
+    pass_filter.setFilterLimits(0, 1.3);
+    pass_filter.setInputCloud(scene_cloud);
+    pass_filter.filter(*temp_cloud);
+    scene_cloud = extractPlane(temp_cloud, true);
 
 
 
