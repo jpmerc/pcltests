@@ -68,6 +68,7 @@ MatrixXd DegreesMatrix;
 MatrixXd AdjacencyMatrix;
 MatrixXd ConnectedMatrix;
 MatrixXd CannotLinkMatrix;
+MatrixXd UnweightedAdjacencyMatrix;
 
 int recursiveCutIndex = 0;
 
@@ -1167,6 +1168,9 @@ void spectralClustering(std::map<int, pcl::Supervoxel<pcl::PointXYZRGBA>::Ptr> *
     CL.resize(size, size);
     CL.setZero();
 
+    UnweightedAdjacencyMatrix.resize(size, size);
+    UnweightedAdjacencyMatrix.setZero();
+
     int i = 0;
     int j = 0;
 
@@ -1220,6 +1224,8 @@ void spectralClustering(std::map<int, pcl::Supervoxel<pcl::PointXYZRGBA>::Ptr> *
             //            }
 
             if(isAdjacent(adjacency, id1, id2)){
+
+
                 const Vector3f c1 = supervoxel1->centroid_.getVector3fMap();
                 const Vector3f c2 = supervoxel2->centroid_.getVector3fMap();
                 const Vector3f n1 = supervoxel1->normal_.getNormalVector3fMap().normalized();
@@ -1264,6 +1270,7 @@ void spectralClustering(std::map<int, pcl::Supervoxel<pcl::PointXYZRGBA>::Ptr> *
 ////                double score = ( inverse_quadratic + neighborhood_score ) / 2 ;
 
                 W(i, j) = weight;
+                UnweightedAdjacencyMatrix(i,j) = 1;
             }
             else{
                  W(i, j) = 0;
@@ -1335,6 +1342,7 @@ void spectralClustering(std::map<int, pcl::Supervoxel<pcl::PointXYZRGBA>::Ptr> *
     printEigenMatrix(D_inverse, "Degree inverse Matrix");
     printEigenMatrix(Connections, "Connections Matrix (not used in code, only for information purposes)");
     printEigenMatrix(CL, "Cannot-Link Constraints (Alexandrov)");
+    printEigenMatrix(UnweightedAdjacencyMatrix, "Unweighted Adjacency");
 
     DegreesMatrix = D;
     AdjacencyMatrix = W;
@@ -1439,7 +1447,7 @@ Eigen::MatrixXd sortEigenvectors(Eigen::MatrixXd &eigenvectors, Eigen::MatrixXd 
     int sorted_index = 0;
     for(std::multimap<double,int>::iterator it = eigenvalues_map.begin(); it != eigenvalues_map.end(); ++it){
         int old_index = it->second;
-        cout << it->first << " , " <<  old_index << endl;
+        //cout << it->first << " , " <<  old_index << endl;
        // cout << eigenvectors.col(old_index) << endl;
 
         for(int i = 0; i < eigenvectors.rows(); i++){
@@ -1552,14 +1560,14 @@ void eigenDecomposition(Eigen::MatrixXd &MatrixToDecompose, Eigen::MatrixXd &eig
     MatrixXcd eigenvectors_matrix = es.eigenvectors();
     MatrixXcd eigenvalues_matrix = es.eigenvalues();
 
-    cout << "Eigenvalues :" << endl;
-    cout <<  es.eigenvalues() << endl;
+//    cout << "Eigenvalues :" << endl;
+//    cout <<  es.eigenvalues() << endl;
 
     eigenvectors = complexToFloatMatrix(eigenvectors_matrix);
-    printEigenMatrix(eigenvectors, "Eigenvectors");
+//    printEigenMatrix(eigenvectors, "Eigenvectors");
 
     eigenvalues = complexToFloatMatrix(eigenvalues_matrix);
-    printEigenMatrix(eigenvalues, "Eigenvalues");
+//    printEigenMatrix(eigenvalues, "Eigenvalues");
 }
 
 
@@ -1798,6 +1806,111 @@ void addConnectedNeighbors(std::map<int, std::vector<int> > *adjacency,
             }
         }
     }
+}
+
+void addConnectedNeighbors(std::map<int, std::vector<int> > *adjacency,
+                           std::map<int, std::vector<int> > *new_clusters,
+                           std::vector<int> *processed_indices,
+                           int index,
+                           int cluster_index,
+                           int cut_index,
+                           vector<int> cut_index2){
+
+    if(adjacency->count(index) > 0){
+        std::vector<int> neighbors_indices = adjacency->at(index);
+
+        for(int i = 0; i < neighbors_indices.size(); i++){
+
+            int neighbor_index = neighbors_indices.at(i);
+
+            // Check if the point has already been processed to avoid being stuck in infinite loop
+            if (std::find(processed_indices->begin(), processed_indices->end(), neighbor_index) == processed_indices->end()){
+
+
+                // Check it is not a possibility of an edge cut
+                bool found = false;
+                for(int j = 0; j < cut_index2.size(); j++){
+                    if(cut_index2.at(j) == neighbor_index){
+                        found = true;
+                        break;
+                    }
+                }
+
+                // If the edge is not cut
+                if(!(index == cut_index && found)){
+                    processed_indices->push_back(neighbor_index);
+
+                    // Check if the index is already present in the vector
+                    std::vector<int> indices = new_clusters->at(cluster_index);
+                    if(std::find(indices.begin(), indices.end(), neighbor_index) == indices.end()) {
+                        //not present
+                        indices.push_back(neighbor_index);
+                        new_clusters->at(cluster_index) = indices;
+
+                        addConnectedComponents(adjacency, new_clusters, processed_indices, neighbor_index, cluster_index);
+                    }
+                }
+            }
+        }
+    }
+}
+
+bool isPresent(map<int, vector<int> > *m, int id){
+
+    bool present = false;
+    for(map<int, std::vector<int> >::iterator it = m->begin(); it != m->end(); ++it){
+        vector<int> v = it->second;
+        if( std::find( v.begin(), v.end(), id) != v.end() ){
+            present = true;
+            break;
+        }
+    }
+    return present;
+}
+
+std::map<int, std::vector<int> > splitCluster(std::map<int, std::vector<int> > *initial_graph, std::map<int, std::vector<int> > *adjacency, int id1, vector<int> id2){
+
+    std::map<int, std::vector<int> > splitted_graph ; //= new std::map<int, std::vector<int> >();
+    int graph_index = 0;
+    vector<int> cut_indices = id2;
+
+    for(std::map<int, std::vector<int> >::iterator it = initial_graph->begin(); it != initial_graph->end(); ++it){
+
+        std::vector<int> indices = it->second;
+        if (std::find(indices.begin(), indices.end(), id1) != indices.end()){
+            // Split this cluster in 2
+            std::vector<int> processed_indices;
+            std::vector<int> v1;
+            v1.push_back(id1);
+
+            splitted_graph.insert(std::pair<int,std::vector<int> >(graph_index, v1));
+            addConnectedNeighbors(adjacency, &splitted_graph, &processed_indices, id1, graph_index, id1, id2);
+            graph_index++;
+
+            // If they are not connected anymore
+            std::vector<int> check = splitted_graph.at(graph_index - 1);
+            while( cut_indices.size() > 0 ){
+                int val = cut_indices.back();
+                cut_indices.pop_back();
+                if( !isPresent(&splitted_graph, val) ) {
+                    vector<int> v_temp;
+                    v_temp.push_back(val);
+                    splitted_graph.insert(std::pair<int,std::vector<int> >(graph_index, v_temp));
+                    addConnectedNeighbors(adjacency, &splitted_graph, &processed_indices, val, graph_index, id1, id2);
+                    graph_index++;
+                }
+            }
+        }
+        else{
+            //Keep the same cluster
+            splitted_graph.insert(std::pair<int,std::vector<int> >(graph_index, indices));
+            graph_index++;
+        }
+    }
+
+   // std::map<int, std::vector<int> > *graph = &splitted_graph;
+    return splitted_graph;
+
 }
 
 
@@ -2181,34 +2294,47 @@ Eigen::VectorXd cutGraph(Eigen::MatrixXd normalizedLaplacianMatrix, std::map<int
 }
 
 
-MatrixXd BuildLaplacian(std::vector<int> *indices, MatrixXd &laplacian){
+MatrixXd gedtSubEigenVectors(std::vector<int> *indices, MatrixXd &eigenvectors){
 
 
-    MatrixXd laplacian_resized;
+//    MatrixXd laplacian_resized;
+//    int size = indices->size();
+//    laplacian_resized.resize(size,size);
+//    for(int i = 0; i < size; i++){
+//        int id_i = indices->at(i);
+//        for(int j = 0; j < size; j++){
+//            int id_j = indices->at(j);
+//            laplacian_resized(j, i) = laplacian(id_j, id_i);
+//        }
+//    }
+
+//    MatrixXd eigenvectors_matrix;
+//    MatrixXd eigenvalues_matrix;
+//    eigenDecomposition(laplacian, eigenvectors_matrix, eigenvalues_matrix);
+//    MatrixXd sorted_eigenvectors = sortEigenvectors(eigenvectors, eigenvalues_matrix);
+
+    MatrixXd eigen_resized;
     int size = indices->size();
-    laplacian_resized.resize(size,size);
+    int numberColumns = eigenvectors.cols();
+    eigen_resized.resize(size, numberColumns);
+
     for(int i = 0; i < size; i++){
         int id_i = indices->at(i);
-        for(int j = 0; j < size; j++){
-            int id_j = indices->at(j);
-            laplacian_resized(j, i) = laplacian(id_j, id_i);
+        for(int j = 0; j < numberColumns; j++){
+            eigen_resized(i,j) = eigenvectors(id_i, j);
         }
     }
 
-    MatrixXd eigenvectors_matrix;
-    MatrixXd eigenvalues_matrix;
-    eigenDecomposition(laplacian, eigenvectors_matrix, eigenvalues_matrix);
-    MatrixXd sorted_eigenvectors = sortEigenvectors(eigenvectors_matrix, eigenvalues_matrix);
-
-    return sorted_eigenvectors;
+    return eigen_resized;
 }
 
 std::vector<int> getNeighbors(int index){
 
     std::vector<int> neighbors;
-    VectorXd row = ConnectedMatrix.row(index);
+    VectorXd row = UnweightedAdjacencyMatrix.row(index);
     for(int i = 0; i < row.size(); i++){
-        if(i!=0) neighbors.push_back(i);
+        int val = row(i);
+        if(val != 0) neighbors.push_back(i);
     }
 
     return neighbors;
@@ -2223,21 +2349,26 @@ std::vector<int> findBestCut(std::vector<int> *indices, MatrixXd &eigen){
 
     // Iterate over all the sorted eigenvectors
     for(int i = 0; i < eigen.cols(); i++){
+    //for(int i = 0; i < 3; i++){
         double cut_weight = 0;
         int cl_edges_cut = 0;
 
         VectorXd vec = eigen.col(i);
-        std::map<double, int> sorted_values;
+        std::multimap<double, int> sorted_values;
+        cout << "Vector : " << endl;
+        cout << vec << endl;
 
         // Push values of selected eigenvector to a map to sort them and keep their index at the same time
-        for(int j = 0; j < vec.size(); j++){
-            sorted_values.insert(std::pair<double,int>( vec(j), indices->at(j)) );
+        for(int j = 0; j < indices->size(); j++){
+            int id = indices->at(j);
+            sorted_values.insert(std::pair<double,int>( vec(j), id ));
         }
 
         // Iterate over the sorted values of a eigenvector column
-        for(std::map<double, int>::iterator it = sorted_values.begin(); it != sorted_values.end(); ++it){
+        for(std::multimap<double, int>::iterator it = sorted_values.begin(); it != sorted_values.end(); ++it){
             double value = it->first;
             int index = it->second;
+            cout << "value:" << value << "  id:" << index;
 
             // Get the neighbors of selected index and iterate over its neighbors
             vector<int> neighbors = getNeighbors(index);
@@ -2248,7 +2379,8 @@ std::vector<int> findBestCut(std::vector<int> *indices, MatrixXd &eigen){
                 if(!found){
                     continue;
                 }
-                double neighbor_value = eigen(neighbor_index, i);
+                int neighbor_vector_id = vec_it - indices->begin();
+                double neighbor_value = eigen(neighbor_vector_id, i);
 
                 // If the value of the neighbor is bigger, add to the current cut weight
                 if(value < neighbor_value){
@@ -2268,7 +2400,13 @@ std::vector<int> findBestCut(std::vector<int> *indices, MatrixXd &eigen){
             }
 
             // For For each value, update the cut if the score is higher than previous ones
-            double local_score = cl_edges_cut / cut_weight;
+
+            double local_score = 0;
+            if(cut_weight != 0){
+                local_score = cl_edges_cut / cut_weight;
+            }
+
+            cout << "  local_score : " << local_score << endl;
             if(local_score > cut_score){
                 cut_i = i;
                 cut_v = index;
@@ -2277,21 +2415,93 @@ std::vector<int> findBestCut(std::vector<int> *indices, MatrixXd &eigen){
         }
     }
 
+
+
+    cout << "final results : " << endl;
+    cout << "id: " << cut_i << "  vertex : " << cut_v << "  score :" << cut_score << endl;
     std::vector<int> v;
     v.push_back(cut_i);
     v.push_back(cut_v);
+    v.push_back(ceil(cut_score));
     return v;
 
 }
 
 
+double utilityScore(map<int, std::vector<int> > *clusters){
+
+}
+
+double cutUtility(vector<int> *original_cluster, int cut_index, std::map<int, std::vector<int> > *original_cluster_map, std::map<int, std::vector<int> > *original_adjacency){
+
+    //minCutScore(v1, v2);
+    //addConnectedNeighbors
+    vector<int> cannot_link_indices;
+    vector<int> cut_hypotheses;
+
+    vector<int> neighbors = getNeighbors(cut_index);
+    for(int i = 0; i < neighbors.size(); i++){
+        int neighbor_index = neighbors.at(i);
+        std::vector<int>::iterator vec_it = std::find(original_cluster->begin(), original_cluster->end(), neighbor_index);
+        bool found = (vec_it != original_cluster->end());
+        if(!found){
+            continue;
+        }
+        cut_hypotheses.push_back(neighbor_index);
+        double cannot_link_value = CannotLinkMatrix(cut_index, neighbor_index);
+        if(cannot_link_value) cannot_link_indices.push_back(neighbor_index);
+    }
+
+    int cannot_link_size = cannot_link_indices.size();
+    if(cannot_link_size > 0){
+        for(int i = 0; i < cannot_link_size; i++){
+            // i = number of elements to take
+            bool combine = true;
+            while(combine){
+                // There is "i" spot for the combin
+
+
+            }
+
+
+        }
+
+
+
+    }
+
+
+    cout << "TRYING TO CUT : (" << cut_index << " , " <<  cut_hypotheses.at(0) << ") " << endl;
+
+
+    std::vector<int> cuts;
+    cuts.push_back(cut_hypotheses.at(0));
+    map<int, std::vector<int> > splitted = splitCluster(original_cluster_map, original_adjacency, cut_index, cuts);
+
+    for(map<int, std::vector<int> >::iterator it = splitted.begin(); it != splitted.end(); ++it){
+
+        cout << " indice = " << it->first << endl;
+        vector<int> v = it->second;
+        for(int i = 0; i < v.size(); i++){
+            cout << v.at(i) << " ";
+        }
+        cout << endl;
+    }
+
+    return 0.0;
+
+
+}
+
 VectorXd alexandrov_clustering(MatrixXd &LaplacianMatrix, std::map<int, pcl::Supervoxel<pcl::PointXYZRGBA>::Ptr> *voxels, std::multimap<int, int> *adjacency){
 
- //   MatrixXd eigenvectors_matrix;
- //   MatrixXd eigenvalues_matrix;
- //   eigenDecomposition(LaplacianMatrix, eigenvectors_matrix, eigenvalues_matrix);
+    MatrixXd eigenvectors_matrix;
+    MatrixXd eigenvalues_matrix;
+    eigenDecomposition(LaplacianMatrix, eigenvectors_matrix, eigenvalues_matrix);
+    MatrixXd sorted_eigenvectors = sortEigenvectors(eigenvectors_matrix, eigenvalues_matrix);
 
-    // Initialize labels with connected components
+
+    // Initialize graph with connected components
     std::map<int, std::vector<int> > adjacency_map = convertMultimapToMap<int,int>(adjacency);
     std::map<int, std::vector<int> > connected_components = findConnectedComponents(&adjacency_map, voxels);
 
@@ -2301,15 +2511,42 @@ VectorXd alexandrov_clustering(MatrixXd &LaplacianMatrix, std::map<int, pcl::Sup
         Q.push(it->second);
     }
 
+    // Reduce the dimension of eigenvectors (decrease the number of columns)
+    int NUMBER_OF_EIGENVECTORS = 10;
+    if (sorted_eigenvectors.cols() < 10){
+        NUMBER_OF_EIGENVECTORS = sorted_eigenvectors.cols();
+    }
+    sorted_eigenvectors = sorted_eigenvectors.block(0, 0, sorted_eigenvectors.rows(), NUMBER_OF_EIGENVECTORS);
+
+
+    map<int, vector<int> > final_clusters;
+    int cluster_index = 0;
+
     while(!Q.empty()){
         std::vector<int> S = Q.top();
         Q.pop();
 
-        MatrixXd eigen_resized = BuildLaplacian(&S, LaplacianMatrix);
+        if(S.size() > 1){
 
-        int cut_counter = 0;
+            MatrixXd eigen_resized = gedtSubEigenVectors(&S, sorted_eigenvectors);
 
-        findBestCut(&S, eigen_resized);
+            int cut_counter = 0;
+
+            vector<int> cut_results = findBestCut(&S, eigen_resized);
+
+            // if the score is non null (there is a cut hypothesis)
+            if(cut_results[2] > 0){
+                map<int, std::vector<int> > cluster_map;
+                cluster_map.insert( std::pair<int, vector<int> >(0, S));
+                double utility_score = cutUtility(&S, cut_results[1], &cluster_map, &adjacency_map);
+            }
+
+
+        }
+
+        else{
+            final_clusters.insert(std::pair<int, vector<int> >(cluster_index, S));
+        }
 
 
     }
@@ -2644,8 +2881,8 @@ int main (int argc, char** argv){
     pcl::PointCloud<PointT>::Ptr scene_cloud(new pcl::PointCloud<PointT>);
     pcl::PointCloud<PointT>::Ptr model_cloud(new pcl::PointCloud<PointT>);
 
-   // pcl::io::loadPCDFile("../bmw_clutter_remaining.pcd", *scene_cloud);
-    pcl::io::loadPCDFile("/home/jp/Downloads/OSD-0.2/pcd/test58.pcd", *scene_cloud);
+   pcl::io::loadPCDFile("../bmw_clutter_remaining.pcd", *scene_cloud);
+  //  pcl::io::loadPCDFile("/home/jp/Downloads/OSD-0.2/pcd/test58.pcd", *scene_cloud);
 
     //    pcl::io::loadPCDFile("../customAlignment_fine.pcd", *model_cloud);
 
@@ -2654,13 +2891,13 @@ int main (int argc, char** argv){
 
 
     /// COMMENT IF NOT USING OSD DATASET
-    pcl::PointCloud<PointT>::Ptr temp_cloud(new pcl::PointCloud<PointT>);
-    pcl::PassThrough<PointT> pass_filter;
-    pass_filter.setFilterFieldName("z");
-    pass_filter.setFilterLimits(0, 1.3);
-    pass_filter.setInputCloud(scene_cloud);
-    pass_filter.filter(*temp_cloud);
-    scene_cloud = extractPlane(temp_cloud, true);
+//    pcl::PointCloud<PointT>::Ptr temp_cloud(new pcl::PointCloud<PointT>);
+//    pcl::PassThrough<PointT> pass_filter;
+//    pass_filter.setFilterFieldName("z");
+//    pass_filter.setFilterLimits(0, 1.3);
+//    pass_filter.setInputCloud(scene_cloud);
+//    pass_filter.filter(*temp_cloud);
+//    scene_cloud = extractPlane(temp_cloud, true);
 
 
 
