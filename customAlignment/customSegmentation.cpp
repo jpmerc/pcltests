@@ -873,15 +873,6 @@ void superVoxels_clustering(pcl::PointCloud<pcl::PointXYZRGBA>::Ptr cloud){
     pcl::console::print_info ("Found %d supervoxels\n", supervoxel_clusters.size ());
 
 
-    // copy map to good format for spectral clustering (int instead of uint32_t)
-    std::map <int, pcl::Supervoxel<PointT>::Ptr> supervoxel_clusters_int;
-    for (std::map<uint32_t, pcl::Supervoxel<PointT>::Ptr>::iterator it=supervoxel_clusters.begin(); it!=supervoxel_clusters.end(); ++it){
-        int id = it->first;
-        pcl::Supervoxel<PointT>::Ptr vox = it->second;
-        supervoxel_clusters_int[id] = vox;
-    }
-
-
     // Voxel Cloud Colors
     PointCloudT::Ptr colored_cloud = super.getColoredVoxelCloud ();
     cout << "Colored Cloud Size : " << colored_cloud->size() << endl;
@@ -892,10 +883,32 @@ void superVoxels_clustering(pcl::PointCloud<pcl::PointXYZRGBA>::Ptr cloud){
     std::multimap<uint32_t, uint32_t> supervoxel_adjacency;
     super.getSupervoxelAdjacency (supervoxel_adjacency);
 
+
+    // Build an index conversion table so that if the supervoxels are used as is, their indices are continuous (no missing element)
+    std::map<uint32_t, pcl::Supervoxel<PointT>::Ptr>::iterator last_iterator = supervoxel_clusters.end();
+    last_iterator--;
+    int last_index_value = last_iterator->first + 1;
+    vector<int> indices_hash_table(last_index_value, -1);
+    int counter = 0;
+    for (std::map<uint32_t, pcl::Supervoxel<PointT>::Ptr>::iterator it=supervoxel_clusters.begin(); it!=supervoxel_clusters.end(); ++it){
+        int id = it->first;
+        indices_hash_table[id] = counter;
+        counter++;
+    }
+
+    // copy map to good format for spectral clustering (int instead of uint32_t), Also remap the indices so that they are continuous
+    std::map <int, pcl::Supervoxel<PointT>::Ptr> supervoxel_clusters_int;
+    for (std::map<uint32_t, pcl::Supervoxel<PointT>::Ptr>::iterator it=supervoxel_clusters.begin(); it!=supervoxel_clusters.end(); ++it){
+        int id = it->first;
+        int mod_id = indices_hash_table[id];
+        pcl::Supervoxel<PointT>::Ptr vox = it->second;
+        supervoxel_clusters_int[mod_id] = vox;
+    }
+
     // copy map to good format for spectral clustering (int instead of uint32_t)
     std::multimap<int, int> supervoxel_adjacency_int;
     for (std::multimap<uint32_t, uint32_t>::iterator it=supervoxel_adjacency.begin(); it!=supervoxel_adjacency.end(); ++it){
-        supervoxel_adjacency_int.insert(std::pair<int,int>(it->first, it->second));
+        supervoxel_adjacency_int.insert(std::pair<int,int>(indices_hash_table[it->first], indices_hash_table[it->second] ));
     }
 
 
@@ -1232,25 +1245,30 @@ void spectralClustering(std::map<int, pcl::Supervoxel<pcl::PointXYZRGBA>::Ptr> *
                 const Vector3f n2 = supervoxel2->normal_.getNormalVector3fMap().normalized();
 
                 /// Reviewed Alexandrov Weights
-                double convexity_calculation = (n2-n1).dot(c2-c1);
+//                double convexity_calculation = (n2-n1).dot(c2-c1);
                 double weight = 0;
 
 
-                if(convexity_calculation > 0){
-                    weight = 1;
+//                if(convexity_calculation > 0){
+//                    weight = 1;
+//                }
+
+//                else{
+//                    double sigma = 0.1;
+//                    double squared_norm = (n1 - n2).squaredNorm();
+//                    weight = 1 / ( 1 + sigma * squared_norm);
+
+                double angle = pcl::rad2deg( acos(n1.dot(n2)) );
+                if(angle > 45){
+                    CL(i,j) = 1;
                 }
+//                }
 
-                else{
-                    double sigma = 0.1;
-                    double squared_norm = (n1 - n2).squaredNorm();
-                    weight = 1 / ( 1 + sigma * squared_norm);
-
-                    double angle = pcl::rad2deg( acos(n1.dot(n2)) );
-                    if(angle > 45){
-                        CL(i,j) = 1;
-                    }
-                }
-
+                double d1 = (c1 - c2).norm();
+                double d2 = 1 - std::abs(n1.dot(n2)) ;
+                double val_dist = exp(-d1 / (0.1));
+                double val_angle = exp(-d2 / (0.2));
+                weight = val_dist * val_angle;
 
 
 //                double sigma = 0.05;
@@ -1366,26 +1384,26 @@ void spectralClustering(std::map<int, pcl::Supervoxel<pcl::PointXYZRGBA>::Ptr> *
     //VectorXd new_labels = cutGraph(RandomWalkLaplacian, voxels, adjacency);
 
 
-//    std::map<int, pcl::Supervoxel<pcl::PointXYZRGBA>::Ptr> new_supervoxels;
+    std::map<int, pcl::Supervoxel<pcl::PointXYZRGBA>::Ptr> new_supervoxels;
 
-//    int ind = 0;
-//    for(std::map<int, pcl::Supervoxel<pcl::PointXYZRGBA>::Ptr>::iterator it = voxels->begin(); it != voxels->end(); ++it){
-//        pcl::Supervoxel<pcl::PointXYZRGBA>::Ptr supervox = it->second;
-//        int new_id = new_labels(ind);
-//         if(new_supervoxels.count(new_id) > 0){
-//             pcl::Supervoxel<pcl::PointXYZRGBA>::Ptr new_supervox = new_supervoxels[new_id];
-//             *(new_supervox->voxels_) += *(supervox->voxels_);
-//             new_supervoxels[new_id] = new_supervox;
-//         }
+    int ind = 0;
+    for(std::map<int, pcl::Supervoxel<pcl::PointXYZRGBA>::Ptr>::iterator it = voxels->begin(); it != voxels->end(); ++it){
+        pcl::Supervoxel<pcl::PointXYZRGBA>::Ptr supervox = it->second;
+        int new_id = new_labels(ind);
+         if(new_supervoxels.count(new_id) > 0){
+             pcl::Supervoxel<pcl::PointXYZRGBA>::Ptr new_supervox = new_supervoxels[new_id];
+             *(new_supervox->voxels_) += *(supervox->voxels_);
+             new_supervoxels[new_id] = new_supervox;
+         }
 
-//         else{
-//             new_supervoxels[new_id] = supervox;
-//         }
+         else{
+             new_supervoxels[new_id] = supervox;
+         }
 
-//         ind++;
-//    }
+         ind++;
+    }
 
-//    printSuperVoxels(&new_supervoxels, adjacency, pclViewer4, false);
+    printSuperVoxels(&new_supervoxels, adjacency, pclViewer4, false);
 
 }
 
@@ -2294,7 +2312,7 @@ Eigen::VectorXd cutGraph(Eigen::MatrixXd normalizedLaplacianMatrix, std::map<int
 }
 
 
-MatrixXd gedtSubEigenVectors(std::vector<int> *indices, MatrixXd &eigenvectors){
+MatrixXd getSubEigenVectors(std::vector<int> *indices, MatrixXd &eigenvectors){
 
 
 //    MatrixXd laplacian_resized;
@@ -2341,11 +2359,12 @@ std::vector<int> getNeighbors(int index){
 }
 
 // returns the cut index (column of eigenvector) and cluster index (row of eigenvector)
-std::vector<int> findBestCut(std::vector<int> *indices, MatrixXd &eigen){
+std::vector<int> findBestCut(std::vector<int> *indices, MatrixXd &eigen, vector< vector<int> > *splitted_clusters){
 
     int cut_i = 0; //cut index (eigenvector)
     int cut_v = 0; // cut vertex (cluster index)
     double cut_score = 0.0; // cut score
+    vector<int> cluster_1;
 
     // Iterate over all the sorted eigenvectors
     for(int i = 0; i < eigen.cols(); i++){
@@ -2365,10 +2384,12 @@ std::vector<int> findBestCut(std::vector<int> *indices, MatrixXd &eigen){
         }
 
         // Iterate over the sorted values of a eigenvector column
+        vector<int> processed_indices;
         for(std::multimap<double, int>::iterator it = sorted_values.begin(); it != sorted_values.end(); ++it){
             double value = it->first;
             int index = it->second;
             cout << "value:" << value << "  id:" << index;
+            processed_indices.push_back(index);
 
             // Get the neighbors of selected index and iterate over its neighbors
             vector<int> neighbors = getNeighbors(index);
@@ -2411,11 +2432,20 @@ std::vector<int> findBestCut(std::vector<int> *indices, MatrixXd &eigen){
                 cut_i = i;
                 cut_v = index;
                 cut_score = local_score;
+                cluster_1 = processed_indices;
             }
         }
     }
 
 
+    // get second_cluster
+    vector<int> cluster_2;
+    for(int i = 0; i < indices->size(); i++){
+        int id = indices->at(i);
+        if (std::find(cluster_1.begin(), cluster_1.end(), id) == cluster_1.end()  ){
+            cluster_2.push_back( id );
+        }
+    }
 
     cout << "final results : " << endl;
     cout << "id: " << cut_i << "  vertex : " << cut_v << "  score :" << cut_score << endl;
@@ -2423,6 +2453,8 @@ std::vector<int> findBestCut(std::vector<int> *indices, MatrixXd &eigen){
     v.push_back(cut_i);
     v.push_back(cut_v);
     v.push_back(ceil(cut_score));
+    splitted_clusters->push_back(cluster_1);
+    splitted_clusters->push_back(cluster_2);
     return v;
 
 }
@@ -2452,23 +2484,23 @@ double cutUtility(vector<int> *original_cluster, int cut_index, std::map<int, st
         if(cannot_link_value) cannot_link_indices.push_back(neighbor_index);
     }
 
-    int cannot_link_size = cannot_link_indices.size();
-    if(cannot_link_size > 0){
-        for(int i = 0; i < cannot_link_size; i++){
-            // i = number of elements to take
-            bool combine = true;
-            while(combine){
-                // There is "i" spot for the combin
+//    int cannot_link_size = cannot_link_indices.size();
+//    if(cannot_link_size > 0){
+//        for(int i = 0; i < cannot_link_size; i++){
+//            // i = number of elements to take
+//            bool combine = true;
+//            while(combine){
+//                // There is "i" spot for the combin
 
 
-            }
+//            }
 
 
-        }
+//        }
 
 
 
-    }
+//    }
 
 
     cout << "TRYING TO CUT : (" << cut_index << " , " <<  cut_hypotheses.at(0) << ") " << endl;
@@ -2501,6 +2533,11 @@ VectorXd alexandrov_clustering(MatrixXd &LaplacianMatrix, std::map<int, pcl::Sup
     MatrixXd sorted_eigenvectors = sortEigenvectors(eigenvectors_matrix, eigenvalues_matrix);
 
 
+    VectorXd labels;
+    int rows = LaplacianMatrix.rows();
+    labels.resize(rows);
+    labels.setZero();
+
     // Initialize graph with connected components
     std::map<int, std::vector<int> > adjacency_map = convertMultimapToMap<int,int>(adjacency);
     std::map<int, std::vector<int> > connected_components = findConnectedComponents(&adjacency_map, voxels);
@@ -2528,33 +2565,69 @@ VectorXd alexandrov_clustering(MatrixXd &LaplacianMatrix, std::map<int, pcl::Sup
 
         if(S.size() > 1){
 
-            MatrixXd eigen_resized = gedtSubEigenVectors(&S, sorted_eigenvectors);
+            MatrixXd eigen_resized = getSubEigenVectors(&S, sorted_eigenvectors);
 
             int cut_counter = 0;
 
-            vector<int> cut_results = findBestCut(&S, eigen_resized);
+            vector< vector<int> > splitted_clusters;
+            vector<int> cut_results = findBestCut(&S, eigen_resized, &splitted_clusters);
+
+            // cout first cluster
+            vector<int> cluster_1 = splitted_clusters[0];
+            vector<int> cluster_2 = splitted_clusters[1];
+
+            cout << "CLUSTER 1 : " << endl;
+            for(int i = 0; i < cluster_1.size(); i++){
+                cout << cluster_1.at(i) << " " ;
+            }
+            cout << endl;
+
+            cout << "CLUSTER 2 : " << endl;
+            for(int i = 0; i < cluster_2.size(); i++){
+                cout << cluster_2.at(i) << " " ;
+            }
+            cout << endl;
+
+            if(cluster_1.size() > 0 && cluster_2.size() > 0){
+                Q.push(cluster_1);
+                Q.push(cluster_2);
+            }
+            else{
+                final_clusters.insert(std::pair<int, vector<int> >(cluster_index, S));
+                cluster_index++;
+            }
+
 
             // if the score is non null (there is a cut hypothesis)
-            if(cut_results[2] > 0){
-                map<int, std::vector<int> > cluster_map;
-                cluster_map.insert( std::pair<int, vector<int> >(0, S));
-                double utility_score = cutUtility(&S, cut_results[1], &cluster_map, &adjacency_map);
-            }
+//            if(cut_results[2] > 0){
+//                map<int, std::vector<int> > cluster_map;
+//                cluster_map.insert( std::pair<int, vector<int> >(0, S));
+//                double utility_score = cutUtility(&S, cut_results[1], &cluster_map, &adjacency_map);
+//            }
 
 
         }
 
         else{
             final_clusters.insert(std::pair<int, vector<int> >(cluster_index, S));
+            cluster_index++;
         }
 
 
     }
 
 
+    for(map<int, std::vector<int> >::iterator it = final_clusters.begin(); it != final_clusters.end(); ++it){
 
+        int cluster_number = it->first;
+        vector<int> v = it->second;
+        for(int i = 0; i < v.size(); i++){
+            int id = v.at(i);
+            labels(id) = cluster_number;
+        }
+    }
 
-
+    return labels;
 }
 
 
@@ -2881,8 +2954,8 @@ int main (int argc, char** argv){
     pcl::PointCloud<PointT>::Ptr scene_cloud(new pcl::PointCloud<PointT>);
     pcl::PointCloud<PointT>::Ptr model_cloud(new pcl::PointCloud<PointT>);
 
-   pcl::io::loadPCDFile("../bmw_clutter_remaining.pcd", *scene_cloud);
-  //  pcl::io::loadPCDFile("/home/jp/Downloads/OSD-0.2/pcd/test58.pcd", *scene_cloud);
+  // pcl::io::loadPCDFile("../bmw_clutter_remaining.pcd", *scene_cloud);
+    pcl::io::loadPCDFile("/home/jp/Downloads/OSD-0.2/pcd/test58.pcd", *scene_cloud);
 
     //    pcl::io::loadPCDFile("../customAlignment_fine.pcd", *model_cloud);
 
@@ -2891,13 +2964,13 @@ int main (int argc, char** argv){
 
 
     /// COMMENT IF NOT USING OSD DATASET
-//    pcl::PointCloud<PointT>::Ptr temp_cloud(new pcl::PointCloud<PointT>);
-//    pcl::PassThrough<PointT> pass_filter;
-//    pass_filter.setFilterFieldName("z");
-//    pass_filter.setFilterLimits(0, 1.3);
-//    pass_filter.setInputCloud(scene_cloud);
-//    pass_filter.filter(*temp_cloud);
-//    scene_cloud = extractPlane(temp_cloud, true);
+    pcl::PointCloud<PointT>::Ptr temp_cloud(new pcl::PointCloud<PointT>);
+    pcl::PassThrough<PointT> pass_filter;
+    pass_filter.setFilterFieldName("z");
+    pass_filter.setFilterLimits(0, 1.3);
+    pass_filter.setInputCloud(scene_cloud);
+    pass_filter.filter(*temp_cloud);
+    scene_cloud = extractPlane(temp_cloud, true);
 
 
 
